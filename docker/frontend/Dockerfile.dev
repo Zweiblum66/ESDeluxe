@@ -1,0 +1,22 @@
+# Development Dockerfile - Vite dev server with HMR
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy workspace root files
+COPY package.json package-lock.json* ./
+COPY shared/package.json shared/
+COPY client/package.json client/
+
+# Install dependencies
+RUN npm install --workspace=client --workspace=shared
+
+# Copy source (will be overridden by volume mount in dev)
+COPY shared/ shared/
+COPY client/ client/
+COPY tsconfig.base.json ./
+
+EXPOSE 15720
+
+WORKDIR /app/client
+CMD ["npx", "vite", "--host", "0.0.0.0", "--port", "15720"]

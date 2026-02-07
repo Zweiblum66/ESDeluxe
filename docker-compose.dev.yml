@@ -1,0 +1,45 @@
+# Development overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile.dev
+    container_name: esm-backend-dev
+    ports:
+      - "${DOCKER_BACKEND_PORT:-15700}:15700"
+      - "${DOCKER_DEBUG_PORT:-15730}:15730"  # Node.js debugger
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./server/src:/app/server/src
+      - ./shared:/app/shared
+      - ./tsconfig.base.json:/app/tsconfig.base.json
+      - ./.env:/app/.env
+      - db-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:15700/api/v1/system/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile.dev
+    container_name: esm-frontend-dev
+    ports:
+      - "${DOCKER_DEV_FRONTEND_PORT:-15720}:15720"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:${DOCKER_BACKEND_PORT:-15700}
+    volumes:
+      - ./client/src:/app/client/src
+      - ./client/index.html:/app/client/index.html
+      - ./client/vite.config.ts:/app/client/vite.config.ts
+      - ./shared:/app/shared
+      - ./tsconfig.base.json:/app/tsconfig.base.json
+    depends_on:
+      backend:
+        condition: service_healthy

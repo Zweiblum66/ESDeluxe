@@ -1,0 +1,82 @@
+@use 'variables' as *;
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background-color: $es-bg-dark;
+  color: $es-text-primary;
+  font-family: 'Inter', 'Segoe UI', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100%;
+}
+
+// Scrollbar styling for dark theme
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: $es-bg-dark;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: $es-surface-variant;
+  border-radius: $es-radius-sm;
+  border: 2px solid $es-bg-dark;
+
+  &:hover {
+    background-color: $es-secondary;
+  }
+}
+
+// Firefox scrollbar
+* {
+  scrollbar-width: thin;
+  scrollbar-color: $es-surface-variant $es-bg-dark;
+}
+
+// Selection color
+::selection {
+  background-color: rgba($es-primary, 0.3);
+  color: $es-text-primary;
+}
+
+// Link defaults
+a {
+  color: $es-primary;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+// Utility classes
+.text-muted {
+  color: $es-text-muted !important;
+}
+
+.text-secondary {
+  color: $es-text-secondary !important;
+}
+
+.bg-surface {
+  background-color: $es-surface !important;
+}
+
+.bg-surface-variant {
+  background-color: $es-surface-variant !important;
+}

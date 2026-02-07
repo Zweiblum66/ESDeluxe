@@ -1,0 +1,28 @@
+{
+  "name": "es-manager-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "vue": "^3.5.0",
+    "vuetify": "^3.7.0",
+    "vue-router": "^4.4.0",
+    "pinia": "^2.2.0",
+    "axios": "^1.7.0",
+    "@mdi/font": "^7.0.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "typescript": "^5.5.0",
+    "sass": "^1.80.0",
+    "vue-tsc": "^2.0.0",
+    "vite-plugin-vuetify": "^2.0.0"
+  }
+}

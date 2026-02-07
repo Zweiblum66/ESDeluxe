@@ -1,0 +1,14 @@
+// Vuetify SCSS variable overrides for the EditShare dark theme.
+// These are consumed by Vuetify's internal SASS compilation.
+
+// Override Vuetify sheet / surface border
+$sheet-border-color: rgba(55, 65, 81, 0.2);
+
+// Data-table overrides
+$data-table-row-hover-background: rgba(59, 130, 246, 0.06);
+
+// Navigation drawer
+$navigation-drawer-border-color: rgba(55, 65, 81, 0.3);
+
+// Text field
+$text-field-border-opacity: 0.3;

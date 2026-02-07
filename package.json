@@ -1,0 +1,23 @@
+{
+  "name": "es-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EditShare New Storage UI - Web-based management interface",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w server && npm run build -w client",
+    "start": "npm run start -w server",
+    "lint": "eslint . --ext .ts,.vue",
+    "deploy": "./deploy.sh",
+    "deploy:skip-build": "./deploy.sh --skip-build",
+    "deploy:setup": "./deploy.sh --setup"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
