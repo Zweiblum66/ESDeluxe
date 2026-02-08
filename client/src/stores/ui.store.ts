@@ -14,6 +14,7 @@ export const useUiStore = defineStore('ui', () => {
   // --- State ---
   const activeSection = ref<ActiveSection>('management');
   const sidebarCollapsed = ref(false);
+  const mobileDrawerOpen = ref(false);
   const notifications = ref<INotification[]>([]);
 
   let notificationCounter = 0;
@@ -26,6 +27,14 @@ export const useUiStore = defineStore('ui', () => {
 
   function toggleSidebar(): void {
     sidebarCollapsed.value = !sidebarCollapsed.value;
+  }
+
+  function toggleMobileDrawer(): void {
+    mobileDrawerOpen.value = !mobileDrawerOpen.value;
+  }
+
+  function closeMobileDrawer(): void {
+    mobileDrawerOpen.value = false;
   }
 
   function addNotification(
@@ -58,10 +67,13 @@ export const useUiStore = defineStore('ui', () => {
     // State
     activeSection,
     sidebarCollapsed,
+    mobileDrawerOpen,
     notifications,
     // Actions
     setActiveSection,
     toggleSidebar,
+    toggleMobileDrawer,
+    closeMobileDrawer,
     addNotification,
     removeNotification,
     clearNotifications,

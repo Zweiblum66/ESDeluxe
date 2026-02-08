@@ -3,6 +3,8 @@ import { logger } from './utils/logger.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 import { initEsApiClient, getEsApiClient } from './services/editshare-api/client.js';
 import { initLdapClient, getLdapClient } from './services/ldap/client.js';
+import { listUsers } from './services/editshare-api/users.service.js';
+import { startScheduler, stopScheduler } from './services/tiering-scheduler.service.js';
 import { createApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -78,6 +80,14 @@ async function main(): Promise<void> {
     }
 
     logger.info('========================================');
+
+    // --- Start Tiering Scheduler ---
+    startScheduler();
+
+    // --- Warm up user list cache in background ---
+    listUsers()
+      .then((users) => logger.info({ count: users.length }, 'User list cache warmed up'))
+      .catch((err) => logger.warn({ err }, 'User list cache warm-up failed'));
   });
 
   // --- Graceful Shutdown ---
@@ -86,6 +96,8 @@ async function main(): Promise<void> {
 
     server.close(() => {
       logger.info('HTTP server closed');
+
+      stopScheduler();
 
       try {
         const ldap = getLdapClient();

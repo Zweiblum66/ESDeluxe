@@ -322,11 +322,21 @@ async function onPoolsReordered(newOrder: IPool[]) {
   max-width: 1000px;
   position: relative;
 
+  @include phone {
+    max-width: 100%;
+  }
+
   &__header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     margin-bottom: 24px;
+    gap: 12px;
+
+    @include phone {
+      flex-direction: column;
+      margin-bottom: 16px;
+    }
   }
 
   &__title {
@@ -334,6 +344,10 @@ async function onPoolsReordered(newOrder: IPool[]) {
     font-weight: 600;
     color: #e5e7eb;
     margin: 0;
+
+    @include phone {
+      font-size: 18px;
+    }
   }
 
   &__subtitle {
@@ -345,6 +359,10 @@ async function onPoolsReordered(newOrder: IPool[]) {
   &__actions {
     display: flex;
     gap: 8px;
+
+    @include phone {
+      flex-wrap: wrap;
+    }
   }
 
   &__toggle-card {
@@ -378,6 +396,12 @@ async function onPoolsReordered(newOrder: IPool[]) {
     display: flex;
     align-items: center;
     justify-content: space-between;
+
+    @include phone {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
   }
 
   &__limit-label {
@@ -386,6 +410,10 @@ async function onPoolsReordered(newOrder: IPool[]) {
 
   &__limit-input {
     width: 180px;
+
+    @include phone {
+      width: 100%;
+    }
   }
 }
 </style>

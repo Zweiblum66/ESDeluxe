@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
+import { useUiStore } from '@/stores/ui.store';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -88,6 +89,54 @@ const routes: RouteRecordRaw[] = [
       icon: 'mdi-speedometer',
     },
   },
+  {
+    path: '/files',
+    name: 'files',
+    component: () => import('@/views/files/FileBrowserView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'File Browser',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-file-tree',
+    },
+  },
+  {
+    path: '/files/:spaceName',
+    name: 'files-space',
+    component: () => import('@/views/files/FileBrowserView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'File Browser',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-file-tree',
+    },
+  },
+  {
+    path: '/files/:spaceName/:pathMatch(.*)*',
+    name: 'files-path',
+    component: () => import('@/views/files/FileBrowserView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'File Browser',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-file-tree',
+    },
+  },
+  {
+    path: '/tiering',
+    name: 'tiering',
+    component: () => import('@/views/tiering/TieringView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Automated Tiering',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-swap-vertical-bold',
+    },
+  },
 ];
 
 const router = createRouter({
@@ -120,6 +169,12 @@ router.beforeEach(async (to, _from, next) => {
   } else {
     next();
   }
+});
+
+// Close mobile navigation drawer on route change
+router.afterEach(() => {
+  const uiStore = useUiStore();
+  uiStore.closeMobileDrawer();
 });
 
 export default router;

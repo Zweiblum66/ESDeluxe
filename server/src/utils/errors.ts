@@ -48,3 +48,9 @@ export class LdapError extends AppError {
     super(message, 502, 'LDAP_ERROR', details);
   }
 }
+
+export class EfsCliError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super(message, 500, 'EFS_CLI_ERROR', details);
+  }
+}

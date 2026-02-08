@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { asyncHandler } from '../utils/async-handler.js';
 import * as spacesController from '../controllers/spaces.controller.js';
+import * as goalsController from '../controllers/goals.controller.js';
+import filesRoutes from './files.routes.js';
 
 const router = Router();
+
+// Mount file browser routes under /:name/files
+router.use('/:name/files', filesRoutes);
 
 // GET /
 router.get('/', asyncHandler(spacesController.listSpaces));
@@ -48,5 +53,11 @@ router.get('/:name/permission-overrides', asyncHandler(spacesController.getPermi
 
 // DELETE /:name/users/:username/override
 router.delete('/:name/users/:username/override', asyncHandler(spacesController.removePermissionOverride));
+
+// GET /:name/goal — get space-level storage goal
+router.get('/:name/goal', asyncHandler(goalsController.getSpaceGoal));
+
+// PUT /:name/goal — set space-level storage goal
+router.put('/:name/goal', asyncHandler(goalsController.setSpaceGoal));
 
 export default router;

@@ -64,49 +64,95 @@ function mapAccessType(accessType: string, readonly: boolean): SpaceAccessType {
   }
 }
 
+// --- User list cache ---
+const CACHE_TTL_MS = 30_000; // 30 seconds
+const BATCH_CONCURRENCY = 50; // max parallel detail requests
+let _userListCache: { data: IUser[]; timestamp: number } | null = null;
+let _userListPending: Promise<IUser[]> | null = null;
+
+/**
+ * Fetch user details in batches with concurrency control.
+ */
+async function fetchUserDetailsBatched(
+  client: ReturnType<typeof getEsApiClient>,
+  usernames: string[],
+): Promise<IUser[]> {
+  const results: IUser[] = [];
+
+  for (let i = 0; i < usernames.length; i += BATCH_CONCURRENCY) {
+    const batch = usernames.slice(i, i + BATCH_CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (username): Promise<IUser> => {
+        try {
+          const detailResponse = await client.get<ESUserDetail>(
+            `/api/v1/storage/users/${encodeURIComponent(username)}`,
+          );
+          const d = detailResponse.data;
+          return {
+            username: d.username,
+            identitySource: mapIdentitySource(d.identity_source),
+            isMaintenance: (d.maintenance_spaces?.length ?? 0) > 0,
+            uid: d.uid,
+          };
+        } catch (err) {
+          logger.warn({ err, username }, `Failed to fetch detail for user: ${username}`);
+          return {
+            username,
+            identitySource: 'LOCAL',
+            isMaintenance: false,
+          };
+        }
+      }),
+    );
+    results.push(...batchResults);
+  }
+
+  return results;
+}
+
 /**
  * Lists all users from the EditShare Storage API.
- * The storage API returns usernames as a flat array;
- * we fetch detail for each to build the full user objects.
+ * Uses a 30s TTL cache to avoid refetching on every request.
  */
 export async function listUsers(): Promise<IUser[]> {
-  try {
-    const client = getEsApiClient();
-
-    // GET /api/v1/storage/users returns a flat array of usernames
-    const listResponse = await client.get<string[]>('/api/v1/storage/users');
-    const usernames: string[] = listResponse.data;
-
-    // Fetch detail for each user in parallel
-    const userPromises = usernames.map(async (username): Promise<IUser | null> => {
-      try {
-        const detailResponse = await client.get<ESUserDetail>(
-          `/api/v1/storage/users/${encodeURIComponent(username)}`,
-        );
-        const d = detailResponse.data;
-        return {
-          username: d.username,
-          identitySource: mapIdentitySource(d.identity_source),
-          isMaintenance: (d.maintenance_spaces?.length ?? 0) > 0,
-          uid: d.uid,
-        };
-      } catch (err) {
-        logger.warn({ err, username }, `Failed to fetch detail for user: ${username}`);
-        // Return a minimal user object if detail fetch fails
-        return {
-          username,
-          identitySource: 'LOCAL',
-          isMaintenance: false,
-        };
-      }
-    });
-
-    const users = await Promise.all(userPromises);
-    return users.filter((u): u is IUser => u !== null);
-  } catch (err) {
-    logger.error({ err }, 'Failed to list users from ES API');
-    throw new ApiError('Failed to list users from EditShare API');
+  // Return cached data if still fresh
+  if (_userListCache && Date.now() - _userListCache.timestamp < CACHE_TTL_MS) {
+    return _userListCache.data;
   }
+
+  // Deduplicate concurrent requests — if a fetch is already in progress, wait for it
+  if (_userListPending) {
+    return _userListPending;
+  }
+
+  _userListPending = (async () => {
+    try {
+      const client = getEsApiClient();
+
+      // GET /api/v1/storage/users returns a flat array of usernames
+      const listResponse = await client.get<string[]>('/api/v1/storage/users');
+      const usernames: string[] = listResponse.data;
+
+      // Fetch detail in batches with concurrency control
+      const users = await fetchUserDetailsBatched(client, usernames);
+
+      // Update cache
+      _userListCache = { data: users, timestamp: Date.now() };
+      return users;
+    } catch (err) {
+      logger.error({ err }, 'Failed to list users from ES API');
+      throw new ApiError('Failed to list users from EditShare API');
+    } finally {
+      _userListPending = null;
+    }
+  })();
+
+  return _userListPending;
+}
+
+/** Invalidate the user list cache (call after create/delete) */
+export function invalidateUserListCache(): void {
+  _userListCache = null;
 }
 
 /**
@@ -139,14 +185,16 @@ export async function getUser(username: string): Promise<IUser> {
 
 /**
  * Creates a new user via the EditShare Storage API.
- * POST /api/v1/storage/users/:username with password in body.
+ * POST /api/v1/storage/users with username and password in body.
  */
 export async function createUser(username: string, password: string): Promise<void> {
   try {
     const client = getEsApiClient();
-    await client.post(`/api/v1/storage/users/${encodeURIComponent(username)}`, {
+    await client.post('/api/v1/storage/users', {
+      username,
       password,
     });
+    invalidateUserListCache();
     logger.info({ username }, `User created: ${username}`);
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'response' in err) {
@@ -168,6 +216,7 @@ export async function deleteUser(username: string): Promise<void> {
   try {
     const client = getEsApiClient();
     await client.delete(`/api/v1/storage/users/${encodeURIComponent(username)}`);
+    invalidateUserListCache();
     logger.info({ username }, `User deleted: ${username}`);
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'response' in err) {

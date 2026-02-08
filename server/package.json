@@ -4,34 +4,38 @@
   "private": true,
   "scripts": {
     "dev": "nodemon",
-    "build": "tsc",
+    "build": "tsc && cp -r src/db/migrations dist/server/src/db/",
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "cors": "^2.8.5",
-    "helmet": "^8.0.0",
-    "better-sqlite3": "^11.8.1",
-    "ldapjs": "^3.0.7",
     "axios": "^1.7.9",
+    "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "ldapjs": "^3.0.7",
+    "mime-types": "^2.1.35",
+    "multer": "^2.0.2",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
-    "zod": "^3.24.1",
-    "dotenv": "^16.4.7",
-    "uuid": "^11.0.5"
+    "uuid": "^11.0.5",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "@types/express": "^5.0.0",
-    "@types/cors": "^2.8.17",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/ldapjs": "^3.0.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
-    "@types/uuid": "^10.0.0",
+    "@types/ldapjs": "^3.0.6",
+    "@types/mime-types": "^3.0.1",
+    "@types/multer": "^2.0.0",
     "@types/node": "^22.12.0",
+    "@types/uuid": "^10.0.0",
+    "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "nodemon": "^3.1.9"
+    "typescript": "^5.7.3"
   }
 }

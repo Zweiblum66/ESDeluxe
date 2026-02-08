@@ -5,3 +5,6 @@ export * from './group';
 export * from './space';
 export * from './qos';
 export * from './access';
+export * from './filesystem';
+export * from './goals';
+export * from './tiering';

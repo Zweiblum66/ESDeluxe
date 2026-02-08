@@ -22,6 +22,8 @@ const sectionNavItems: SectionNav = {
     { title: 'Users', icon: 'mdi-account-multiple', to: '/users', routeName: 'users' },
     { title: 'Groups', icon: 'mdi-account-group', to: '/groups', routeName: 'groups' },
     { title: 'Media Spaces', icon: 'mdi-folder-multiple', to: '/spaces', routeName: 'spaces' },
+    { title: 'File Browser', icon: 'mdi-file-tree', to: '/files', routeName: 'files' },
+    { title: 'Tiering', icon: 'mdi-swap-vertical-bold', to: '/tiering', routeName: 'tiering' },
     { title: 'Access', icon: 'mdi-shield-key', to: '/access', routeName: 'access' },
     { title: 'QoS', icon: 'mdi-speedometer', to: '/qos', routeName: 'qos' },
     { title: 'Trash', icon: 'mdi-delete', to: '/trash', routeName: 'trash' },
@@ -49,7 +51,10 @@ const sectionTitle = computed(() => {
 });
 
 function isActive(item: NavItem): boolean {
-  return route.name === item.routeName;
+  const name = route.name as string | undefined;
+  if (!name) return false;
+  // Support prefix matching (e.g., 'files' matches 'files', 'files-space', 'files-path')
+  return name === item.routeName || name.startsWith(item.routeName + '-');
 }
 </script>
 

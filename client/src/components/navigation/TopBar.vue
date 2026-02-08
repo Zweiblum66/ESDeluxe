@@ -2,9 +2,11 @@
 import { ref, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
+import { useUiStore } from '@/stores/ui.store';
 
 const route = useRoute();
 const authStore = useAuthStore();
+const uiStore = useUiStore();
 
 const languageMenu = ref(false);
 const userMenu = ref(false);
@@ -24,8 +26,15 @@ async function handleLogout(): Promise<void> {
 
 <template>
   <div class="top-bar">
-    <!-- Left: Page title -->
+    <!-- Left: Hamburger (mobile) + Page title -->
     <div class="top-bar__left">
+      <v-btn
+        icon="mdi-menu"
+        variant="text"
+        size="small"
+        class="top-bar__hamburger"
+        @click="uiStore.toggleMobileDrawer()"
+      />
       <h1 class="top-bar__title">{{ pageTitle }}</h1>
     </div>
 
@@ -99,9 +108,21 @@ async function handleLogout(): Promise<void> {
   background-color: #22252d;
   border-bottom: 1px solid rgba(55, 65, 81, 0.3);
 
+  @include phone {
+    padding: 0 12px;
+  }
+
   &__left {
     display: flex;
     align-items: center;
+  }
+
+  &__hamburger {
+    margin-right: 8px;
+
+    @include desktop-up {
+      display: none !important;
+    }
   }
 
   &__title {
@@ -109,6 +130,10 @@ async function handleLogout(): Promise<void> {
     font-weight: 600;
     color: #e5e7eb;
     margin: 0;
+
+    @include phone {
+      font-size: 14px;
+    }
   }
 
   &__right {

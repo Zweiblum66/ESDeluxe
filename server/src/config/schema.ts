@@ -22,6 +22,12 @@ export const envSchema = z.object({
   // EFS
   EFS_MOUNT_POINT: z.string().min(1).default('/efs/efs_1'),
 
+  // Tiering
+  TIERING_ENABLED: booleanString.default('true'),
+  TIERING_CHECK_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),
+  TIERING_MAX_FILES_PER_RUN: z.coerce.number().int().positive().default(1000),
+  TIERING_LOG_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+
   // Application
   APP_PORT: z.coerce.number().int().positive().default(15700),
   APP_SECRET: z.string().min(16, 'APP_SECRET must be at least 16 characters'),
