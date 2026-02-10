@@ -15,6 +15,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   'click-node': [node: TreeNode];
   'toggle-node': [node: TreeNode];
+  'contextmenu-node': [event: MouseEvent, node: TreeNode];
 }>();
 
 function isActive(): boolean {
@@ -37,6 +38,7 @@ function isSelected(): boolean {
       }"
       :style="{ paddingLeft: (depth * 16 + 8) + 'px' }"
       @click="emit('click-node', node)"
+      @contextmenu.prevent="emit('contextmenu-node', $event, node)"
     >
       <v-btn
         icon
@@ -68,6 +70,7 @@ function isSelected(): boolean {
         :selected-node-id="selectedNodeId"
         @click-node="emit('click-node', $event)"
         @toggle-node="emit('toggle-node', $event)"
+        @contextmenu-node="(ev, n) => emit('contextmenu-node', ev, n)"
       />
     </template>
   </div>

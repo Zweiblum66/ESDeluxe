@@ -2,9 +2,12 @@ import { logger } from '../utils/logger.js';
 import { config } from '../config/index.js';
 import { resolveSpacePath } from '../utils/path-security.js';
 import { getSpaceInfo } from './filesystem.service.js';
+import { listSpaces } from './editshare-api/spaces.service.js';
 import * as efsCli from './efs-cli/commands.js';
 import * as tieringStore from './tiering-rules.store.js';
-import type { ITieringRule, ITieringSchedulerStatus } from '../../../shared/types/tiering.js';
+import * as archiveService from './archive/archive.service.js';
+import type { ITieringRule, ITieringSchedulerStatus, ISpaceSelector } from '../../../shared/types/tiering.js';
+import type { ISpace } from '../../../shared/types/space.js';
 
 // ──────────────────────────────────────────────
 // Scheduler State
@@ -43,24 +46,33 @@ interface EfsFindEntry {
   path: string;
 }
 
+/** Convert a time-based operator + value to a threshold in seconds */
+function operatorToSeconds(operator: string, value: string): number | null {
+  const n = parseInt(value, 10);
+  if (isNaN(n)) return null;
+  switch (operator) {
+    case 'older_than_hours': return n * 3600;
+    case 'older_than_days': return n * 86400;
+    case 'older_than_weeks': return n * 7 * 86400;
+    case 'older_than_months': return n * 30 * 86400;
+    default: return null;
+  }
+}
+
 function evaluateCondition(entry: EfsFindEntry, rule: ITieringRule): boolean {
   const now = Math.floor(Date.now() / 1000);
 
   switch (rule.condition) {
     case 'last_access': {
-      if (rule.operator !== 'older_than_days') return false;
-      const thresholdDays = parseInt(rule.value, 10);
-      if (isNaN(thresholdDays)) return false;
-      const ageDays = (now - entry.atime) / 86400;
-      return ageDays > thresholdDays;
+      const thresholdSec = operatorToSeconds(rule.operator, rule.value);
+      if (thresholdSec === null) return false;
+      return (now - entry.atime) > thresholdSec;
     }
 
     case 'last_modified': {
-      if (rule.operator !== 'older_than_days') return false;
-      const thresholdDays = parseInt(rule.value, 10);
-      if (isNaN(thresholdDays)) return false;
-      const ageDays = (now - entry.mtime) / 86400;
-      return ageDays > thresholdDays;
+      const thresholdSec = operatorToSeconds(rule.operator, rule.value);
+      if (thresholdSec === null) return false;
+      return (now - entry.mtime) > thresholdSec;
     }
 
     case 'file_size': {
@@ -89,138 +101,242 @@ function evaluateCondition(entry: EfsFindEntry, rule: ITieringRule): boolean {
 }
 
 // ──────────────────────────────────────────────
-// Rule execution
+// Space resolution
 // ──────────────────────────────────────────────
 
-async function executeRule(rule: ITieringRule): Promise<void> {
-  const logId = tieringStore.createExecutionLog(rule.id);
-  const maxFiles = getMaxFilesPerRun();
+async function resolveSpacesFromSelector(selector: ISpaceSelector): Promise<ISpace[]> {
+  switch (selector.mode) {
+    case 'explicit': {
+      const results: ISpace[] = [];
+      for (const name of selector.spaceNames) {
+        try {
+          const space = await getSpaceInfo(name);
+          results.push(space);
+        } catch (err) {
+          logger.warn({ err, spaceName: name }, `Space not found for tiering rule, skipping: ${name}`);
+        }
+      }
+      return results;
+    }
 
+    case 'by_type': {
+      const allSpaces = await listSpaces();
+      return allSpaces.filter((s) => selector.spaceTypes.includes(s.type));
+    }
+
+    case 'pattern': {
+      const allSpaces = await listSpaces();
+      try {
+        const re = new RegExp(selector.namePattern);
+        return allSpaces.filter((s) => re.test(s.name));
+      } catch {
+        logger.warn({ pattern: selector.namePattern }, 'Invalid regex pattern in tiering rule');
+        return [];
+      }
+    }
+
+    case 'all': {
+      return listSpaces();
+    }
+
+    default:
+      return [];
+  }
+}
+
+// ──────────────────────────────────────────────
+// Per-space rule execution
+// ──────────────────────────────────────────────
+
+interface SpaceExecResult {
+  filesProcessed: number;
+  filesSkipped: number;
+  filesFailed: number;
+  bytesProcessed: number;
+  errors: string[];
+}
+
+async function executeRuleForSpace(
+  rule: ITieringRule,
+  spaceName: string,
+  spaceType: string,
+  maxFiles: number,
+): Promise<SpaceExecResult> {
   let filesProcessed = 0;
   let filesSkipped = 0;
   let filesFailed = 0;
   let bytesProcessed = 0;
   const errors: string[] = [];
 
-  try {
-    logger.info(
-      { ruleId: rule.id, spaceName: rule.spaceName, name: rule.name },
-      `Executing tiering rule: ${rule.name}`,
-    );
+  const contentRoot = resolveSpacePath(spaceName, spaceType);
 
-    // Resolve space path
-    const space = await getSpaceInfo(rule.spaceName);
-    const contentRoot = resolveSpacePath(rule.spaceName, space.type);
+  // Determine search path
+  let searchPath = contentRoot;
+  if (rule.pathPattern) {
+    searchPath = resolveSpacePath(spaceName, spaceType, rule.pathPattern);
+  }
 
-    // Determine search path (contentRoot or subpath if pathPattern is set)
-    let searchPath = contentRoot;
-    if (rule.pathPattern) {
-      searchPath = resolveSpacePath(rule.spaceName, space.type, rule.pathPattern);
+  // Use efs-find to enumerate files
+  const entries = await efsCli.findEntries(searchPath, contentRoot);
+  const fileEntries = entries.filter((e) => e.type === 'file');
+
+  // Evaluate conditions and build candidate list
+  const candidates: typeof fileEntries = [];
+  for (const entry of fileEntries) {
+    if (candidates.length >= maxFiles) break;
+
+    const efsFindEntry: EfsFindEntry = {
+      atime: entry.atime,
+      mtime: entry.mtime,
+      size: entry.size,
+      type: 'file',
+      path: entry.path,
+    };
+
+    if (evaluateCondition(efsFindEntry, rule)) {
+      candidates.push(entry);
+    } else {
+      filesSkipped++;
     }
+  }
 
-    // Use efs-find to enumerate files
-    const entries = await efsCli.findEntries(searchPath, contentRoot);
-
-    // Filter to files only (tiering applies to files, not directories)
-    const fileEntries = entries.filter((e) => e.type === 'file');
-
-    // Get current goal for each file and check against source goal
-    // To be efficient, we batch-check by evaluating conditions first,
-    // then checking goals only for candidates
-    const candidates: typeof fileEntries = [];
-
-    for (const entry of fileEntries) {
-      if (candidates.length >= maxFiles) break;
-
-      // Convert IFileEntry to the shape evaluateCondition expects
-      const efsFindEntry: EfsFindEntry = {
-        atime: entry.atime,
-        mtime: entry.mtime,
-        size: entry.size,
-        type: 'file',
-        path: entry.path,
-      };
-
-      if (evaluateCondition(efsFindEntry, rule)) {
-        candidates.push(entry);
-      } else {
-        filesSkipped++;
-      }
-    }
-
-    // Process candidates: verify goal and apply new goal
+  // Process candidates based on target type
+  if (rule.targetType === 'archive' && rule.archiveLocationId) {
     for (const candidate of candidates) {
       try {
-        const absPath = resolveSpacePath(rule.spaceName, space.type, candidate.path);
+        const absPath = resolveSpacePath(spaceName, spaceType, candidate.path);
+        const isStub = await archiveService.isStubFile(absPath);
+        if (isStub) { filesSkipped++; continue; }
 
-        // Check current goal
-        const currentGoal = await efsCli.getGoal(absPath);
-        if (currentGoal !== rule.sourceGoal) {
-          filesSkipped++;
-          continue;
+        if (rule.sourceGoal) {
+          const currentGoal = await efsCli.getGoal(absPath);
+          if (currentGoal !== rule.sourceGoal) { filesSkipped++; continue; }
         }
 
-        // Apply new goal
-        await efsCli.setGoal(rule.targetGoal, [absPath], false);
+        await archiveService.archiveFile(spaceName, candidate.path, rule.archiveLocationId, 'tiering-scheduler');
         filesProcessed++;
         bytesProcessed += candidate.size;
-
-        logger.debug(
-          { path: candidate.path, from: rule.sourceGoal, to: rule.targetGoal },
-          'File tiered',
-        );
       } catch (err) {
         filesFailed++;
         const msg = err instanceof Error ? err.message : String(err);
-        if (errors.length < 50) {
-          errors.push(`${candidate.path}: ${msg}`);
+        if (errors.length < 50) errors.push(`[${spaceName}] ${candidate.path}: ${msg}`);
+        logger.warn({ err, path: candidate.path, space: spaceName }, 'Failed to archive file');
+      }
+    }
+  } else {
+    for (const candidate of candidates) {
+      try {
+        const absPath = resolveSpacePath(spaceName, spaceType, candidate.path);
+
+        if (rule.sourceGoal) {
+          const currentGoal = await efsCli.getGoal(absPath);
+          if (currentGoal !== rule.sourceGoal) { filesSkipped++; continue; }
         }
-        logger.warn({ err, path: candidate.path }, 'Failed to tier file');
+
+        if (rule.targetGoal) {
+          await efsCli.setGoal(rule.targetGoal, [absPath], false);
+        }
+        filesProcessed++;
+        bytesProcessed += candidate.size;
+      } catch (err) {
+        filesFailed++;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (errors.length < 50) errors.push(`[${spaceName}] ${candidate.path}: ${msg}`);
+        logger.warn({ err, path: candidate.path, space: spaceName }, 'Failed to tier file');
+      }
+    }
+  }
+
+  return { filesProcessed, filesSkipped, filesFailed, bytesProcessed, errors };
+}
+
+// ──────────────────────────────────────────────
+// Rule execution (multi-space)
+// ──────────────────────────────────────────────
+
+async function executeRule(rule: ITieringRule): Promise<void> {
+  const logId = tieringStore.createExecutionLog(rule.id);
+  const maxFiles = getMaxFilesPerRun();
+
+  let totalProcessed = 0;
+  let totalSkipped = 0;
+  let totalFailed = 0;
+  let totalBytes = 0;
+  const allErrors: string[] = [];
+
+  try {
+    // Resolve which spaces this rule targets
+    const spaces = await resolveSpacesFromSelector(rule.spaceSelector);
+
+    if (spaces.length === 0) {
+      logger.warn({ ruleId: rule.id, name: rule.name }, 'No spaces matched for tiering rule');
+      tieringStore.updateExecutionLog(logId, {
+        filesProcessed: 0, filesSkipped: 0, filesFailed: 0, bytesProcessed: 0,
+        status: 'completed',
+      });
+      const now = Math.floor(Date.now() / 1000);
+      tieringStore.updateRuleRunStatus(rule.id, now, 0, 0, now + getIntervalMinutes() * 60);
+      return;
+    }
+
+    logger.info(
+      { ruleId: rule.id, name: rule.name, spaceCount: spaces.length, spaces: spaces.map((s) => s.name) },
+      `Executing tiering rule "${rule.name}" across ${spaces.length} space(s)`,
+    );
+
+    let remainingFiles = maxFiles;
+
+    for (const space of spaces) {
+      if (remainingFiles <= 0) break;
+
+      try {
+        const result = await executeRuleForSpace(rule, space.name, space.type, remainingFiles);
+        totalProcessed += result.filesProcessed;
+        totalSkipped += result.filesSkipped;
+        totalFailed += result.filesFailed;
+        totalBytes += result.bytesProcessed;
+        allErrors.push(...result.errors);
+        remainingFiles -= result.filesProcessed;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        allErrors.push(`[${space.name}] ${msg}`);
+        logger.warn({ err, space: space.name, ruleId: rule.id }, `Failed to execute rule for space: ${space.name}`);
       }
     }
 
     // Update execution log
     tieringStore.updateExecutionLog(logId, {
-      filesProcessed,
-      filesSkipped,
-      filesFailed,
-      bytesProcessed,
-      errors: errors.length > 0 ? errors : undefined,
-      status: filesFailed > 0 ? 'completed' : 'completed',
+      filesProcessed: totalProcessed,
+      filesSkipped: totalSkipped,
+      filesFailed: totalFailed,
+      bytesProcessed: totalBytes,
+      errors: allErrors.length > 0 ? allErrors : undefined,
+      status: 'completed',
     });
 
     // Update rule run status
     const now = Math.floor(Date.now() / 1000);
     const nextRun = now + getIntervalMinutes() * 60;
-    tieringStore.updateRuleRunStatus(rule.id, now, filesProcessed, filesFailed, nextRun);
+    tieringStore.updateRuleRunStatus(rule.id, now, totalProcessed, totalFailed, nextRun);
 
     logger.info(
-      {
-        ruleId: rule.id,
-        name: rule.name,
-        filesProcessed,
-        filesSkipped,
-        filesFailed,
-        bytesProcessed,
-      },
+      { ruleId: rule.id, name: rule.name, spaces: spaces.length, totalProcessed, totalSkipped, totalFailed, totalBytes },
       `Tiering rule completed: ${rule.name}`,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    errors.push(msg);
+    allErrors.push(msg);
 
     tieringStore.updateExecutionLog(logId, {
-      filesProcessed,
-      filesSkipped,
-      filesFailed,
-      bytesProcessed,
-      errors,
+      filesProcessed: totalProcessed,
+      filesSkipped: totalSkipped,
+      filesFailed: totalFailed,
+      bytesProcessed: totalBytes,
+      errors: allErrors,
       status: 'failed',
     });
 
-    // Mark rule as error if it fails completely
     tieringStore.updateRule(rule.id, { status: 'error' });
-
     logger.error({ err, ruleId: rule.id, name: rule.name }, `Tiering rule failed: ${rule.name}`);
   }
 }

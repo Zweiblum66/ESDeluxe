@@ -13,6 +13,13 @@ export interface IFileEntry {
   inode: number;
   nlink: number;
   goal?: string;
+  isArchiveStub?: boolean;
+  archiveInfo?: {
+    originalSize: number;
+    archiveLocationName: string;
+    archivedAt: number;
+    catalogEntryId: number;
+  };
 }
 
 /** Result of listing a directory */

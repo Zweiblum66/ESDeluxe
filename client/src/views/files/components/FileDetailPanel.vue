@@ -17,6 +17,7 @@ const emit = defineEmits<{
   'edit-acl': [];
   'edit-goal': [];
   download: [path: string];
+  'restore-archive': [catalogEntryId: number];
 }>();
 
 function formatBytes(bytes: number): string {
@@ -193,9 +194,41 @@ const defaultAclSummary = computed(() => {
         <div v-else class="text-caption text-medium-emphasis">Not loaded</div>
       </div>
 
+      <!-- Archive Info (for stubs) -->
+      <div v-if="entry.isArchiveStub && entry.archiveInfo" class="file-detail-panel__section">
+        <div class="file-detail-panel__section-title">
+          <v-icon size="14" color="deep-purple" class="mr-1">mdi-archive</v-icon>
+          Archive Info
+        </div>
+        <div class="file-detail-panel__row">
+          <span class="file-detail-panel__label">Original Size</span>
+          <span>{{ formatBytes(entry.archiveInfo.originalSize) }}</span>
+        </div>
+        <div class="file-detail-panel__row">
+          <span class="file-detail-panel__label">Location</span>
+          <span>{{ entry.archiveInfo.archiveLocationName }}</span>
+        </div>
+        <div class="file-detail-panel__row">
+          <span class="file-detail-panel__label">Archived</span>
+          <span>{{ formatDate(entry.archiveInfo.archivedAt) }}</span>
+        </div>
+        <v-btn
+          size="small"
+          variant="tonal"
+          color="deep-purple"
+          prepend-icon="mdi-archive-arrow-down"
+          block
+          class="mt-3"
+          @click="emit('restore-archive', entry.archiveInfo!.catalogEntryId)"
+        >
+          Restore from Archive
+        </v-btn>
+      </div>
+
       <!-- Actions -->
       <div v-if="entry.type === 'file'" class="file-detail-panel__section">
         <v-btn
+          v-if="!entry.isArchiveStub"
           size="small"
           variant="tonal"
           color="primary"

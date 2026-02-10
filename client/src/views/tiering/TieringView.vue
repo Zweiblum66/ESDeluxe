@@ -9,7 +9,7 @@ import SchedulerStatusCard from './components/SchedulerStatusCard.vue';
 import TieringRuleDialog from './components/TieringRuleDialog.vue';
 import TieringLogsPanel from './components/TieringLogsPanel.vue';
 import { useResponsive } from '@/composables/useResponsive';
-import type { ITieringRule, ICreateTieringRuleRequest } from '@shared/types';
+import type { ITieringRule, ICreateTieringRuleRequest, ISpaceSelector } from '@shared/types';
 
 const store = useTieringStore();
 const responsive = useResponsive();
@@ -20,7 +20,23 @@ const spaceFilter = ref<string>('');
 
 const filteredRules = computed(() => {
   if (!spaceFilter.value) return store.rules;
-  return store.rules.filter((r) => r.spaceName === spaceFilter.value);
+  const filterName = spaceFilter.value;
+  return store.rules.filter((r) => {
+    const sel = r.spaceSelector;
+    if (!sel) return r.spaceName === filterName;
+    switch (sel.mode) {
+      case 'explicit': return sel.spaceNames.includes(filterName);
+      case 'by_type': {
+        const space = spacesStore.spaces.find((s) => s.name === filterName);
+        return space ? sel.spaceTypes.includes(space.type as any) : false;
+      }
+      case 'pattern': {
+        try { return new RegExp(sel.namePattern).test(filterName); } catch { return false; }
+      }
+      case 'all': return true;
+      default: return false;
+    }
+  });
 });
 
 // --- Dialogs ---
@@ -37,7 +53,7 @@ const isTriggering = ref(false);
 // --- Table columns ---
 const columns = [
   { key: 'name', title: 'Name', sortable: true },
-  { key: 'spaceName', title: 'Space', sortable: true, width: '140px' },
+  { key: 'spaceSelector', title: 'Spaces', sortable: false, width: '180px' },
   { key: 'condition', title: 'Condition', sortable: true, width: '160px' },
   { key: 'sourceGoal', title: 'From', sortable: true, width: '140px' },
   { key: 'targetGoal', title: 'To', sortable: true, width: '140px' },
@@ -57,10 +73,21 @@ function formatDate(ts?: number): string {
   });
 }
 
+function timeUnitSuffix(operator: string): string {
+  switch (operator) {
+    case 'older_than_hours': return 'h';
+    case 'older_than_days': return 'd';
+    case 'older_than_weeks': return 'w';
+    case 'older_than_months': return 'mo';
+    default: return 'd';
+  }
+}
+
 function conditionLabel(rule: ITieringRule): string {
+  const unit = timeUnitSuffix(rule.operator);
   switch (rule.condition) {
-    case 'last_access': return `Access > ${rule.value}d`;
-    case 'last_modified': return `Modified > ${rule.value}d`;
+    case 'last_access': return `Access > ${rule.value}${unit}`;
+    case 'last_modified': return `Modified > ${rule.value}${unit}`;
     case 'file_size': return `Size > ${rule.value}B`;
     case 'file_extension': return `Ext ${rule.operator === 'matches' ? '=' : '!='} ${rule.value}`;
     default: return rule.condition;
@@ -75,6 +102,31 @@ function statusColor(status: string): string {
     default: return 'grey';
   }
 }
+
+function spaceSelectorLabel(sel?: ISpaceSelector): string {
+  if (!sel) return '—';
+  switch (sel.mode) {
+    case 'explicit':
+      if (sel.spaceNames.length === 1) return sel.spaceNames[0];
+      return `${sel.spaceNames.length} spaces`;
+    case 'by_type':
+      return sel.spaceTypes.join(', ');
+    case 'pattern':
+      return `/${sel.namePattern}/`;
+    case 'all':
+      return 'All spaces';
+    default:
+      return '—';
+  }
+}
+
+const SPACE_TYPE_LABELS: Record<string, string> = {
+  avidstyle: 'Avid Style',
+  avidmxf: 'Avid MXF',
+  managed: 'Managed',
+  unmanaged: 'Unmanaged',
+  acl: 'ACL',
+};
 
 // --- CRUD ---
 function openCreate(): void {
@@ -202,6 +254,31 @@ onMounted(async () => {
       no-data-text="No tiering rules configured"
       @click:row="openDetail"
     >
+      <template #item.spaceSelector="{ item }">
+        <template v-if="(item as any).spaceSelector?.mode === 'explicit'">
+          <span v-if="(item as any).spaceSelector.spaceNames.length === 1" class="text-caption">
+            {{ (item as any).spaceSelector.spaceNames[0] }}
+          </span>
+          <v-chip v-else size="x-small" variant="tonal" color="primary" label>
+            <v-icon start size="12">mdi-format-list-bulleted</v-icon>
+            {{ (item as any).spaceSelector.spaceNames.length }} spaces
+          </v-chip>
+        </template>
+        <v-chip v-else-if="(item as any).spaceSelector?.mode === 'by_type'" size="x-small" variant="tonal" color="blue" label>
+          <v-icon start size="12">mdi-shape</v-icon>
+          {{ (item as any).spaceSelector.spaceTypes.map((t: string) => SPACE_TYPE_LABELS[t] || t).join(', ') }}
+        </v-chip>
+        <v-chip v-else-if="(item as any).spaceSelector?.mode === 'pattern'" size="x-small" variant="tonal" color="teal" label>
+          <v-icon start size="12">mdi-regex</v-icon>
+          /{{ (item as any).spaceSelector.namePattern }}/
+        </v-chip>
+        <v-chip v-else-if="(item as any).spaceSelector?.mode === 'all'" size="x-small" variant="tonal" color="teal" label>
+          <v-icon start size="12">mdi-select-all</v-icon>
+          All spaces
+        </v-chip>
+        <span v-else class="text-caption">{{ (item as any).spaceName || '—' }}</span>
+      </template>
+
       <template #item.condition="{ item }">
         <span class="text-caption">
           {{ conditionLabel(item as unknown as ITieringRule) }}
@@ -209,11 +286,20 @@ onMounted(async () => {
       </template>
 
       <template #item.sourceGoal="{ item }">
-        <v-chip size="x-small" variant="tonal" label>{{ (item as any).sourceGoal }}</v-chip>
+        <template v-if="(item as any).targetType === 'archive'">
+          <span class="text-caption text-medium-emphasis">—</span>
+        </template>
+        <v-chip v-else size="x-small" variant="tonal" label>{{ (item as any).sourceGoal }}</v-chip>
       </template>
 
       <template #item.targetGoal="{ item }">
-        <v-chip size="x-small" variant="tonal" color="info" label>{{ (item as any).targetGoal }}</v-chip>
+        <template v-if="(item as any).targetType === 'archive'">
+          <v-chip size="x-small" variant="tonal" color="deep-purple" label>
+            <v-icon start size="12">mdi-archive</v-icon>
+            {{ (item as any).archiveLocationName || 'Archive' }}
+          </v-chip>
+        </template>
+        <v-chip v-else size="x-small" variant="tonal" color="info" label>{{ (item as any).targetGoal }}</v-chip>
       </template>
 
       <template #item.status="{ item }">
@@ -288,25 +374,60 @@ onMounted(async () => {
         <v-card-text>
           <v-list density="compact" class="mb-4">
             <v-list-item>
-              <v-list-item-title>Space</v-list-item-title>
-              <template #append>{{ store.selectedRule.spaceName }}</template>
+              <v-list-item-title>Spaces</v-list-item-title>
+              <template #append>
+                <template v-if="store.selectedRule.spaceSelector?.mode === 'explicit'">
+                  <v-chip
+                    v-for="name in store.selectedRule.spaceSelector.spaceNames"
+                    :key="name"
+                    size="small"
+                    variant="tonal"
+                    label
+                    class="ml-1"
+                  >{{ name }}</v-chip>
+                </template>
+                <v-chip v-else-if="store.selectedRule.spaceSelector?.mode === 'by_type'" size="small" variant="tonal" color="blue" label>
+                  <v-icon start size="14">mdi-shape</v-icon>
+                  {{ (store.selectedRule.spaceSelector as any).spaceTypes.map((t: string) => SPACE_TYPE_LABELS[t] || t).join(', ') }}
+                </v-chip>
+                <v-chip v-else-if="store.selectedRule.spaceSelector?.mode === 'pattern'" size="small" variant="tonal" color="teal" label>
+                  <v-icon start size="14">mdi-regex</v-icon>
+                  /{{ (store.selectedRule.spaceSelector as any).namePattern }}/
+                </v-chip>
+                <v-chip v-else-if="store.selectedRule.spaceSelector?.mode === 'all'" size="small" variant="tonal" color="teal" label>
+                  <v-icon start size="14">mdi-select-all</v-icon>
+                  All spaces
+                </v-chip>
+                <span v-else>{{ store.selectedRule.spaceName || '—' }}</span>
+              </template>
             </v-list-item>
             <v-list-item v-if="store.selectedRule.description">
               <v-list-item-title>Description</v-list-item-title>
               <template #append>{{ store.selectedRule.description }}</template>
             </v-list-item>
-            <v-list-item>
-              <v-list-item-title>Source Goal</v-list-item-title>
+            <v-list-item v-if="store.selectedRule.targetType === 'archive'">
+              <v-list-item-title>Target</v-list-item-title>
               <template #append>
-                <v-chip size="small" variant="tonal" label>{{ store.selectedRule.sourceGoal }}</v-chip>
+                <v-chip size="small" variant="tonal" color="deep-purple" label>
+                  <v-icon start size="14">mdi-archive</v-icon>
+                  {{ store.selectedRule.archiveLocationName || 'Archive' }}
+                </v-chip>
               </template>
             </v-list-item>
-            <v-list-item>
-              <v-list-item-title>Target Goal</v-list-item-title>
-              <template #append>
-                <v-chip size="small" variant="tonal" color="info" label>{{ store.selectedRule.targetGoal }}</v-chip>
-              </template>
-            </v-list-item>
+            <template v-else>
+              <v-list-item>
+                <v-list-item-title>Source Goal</v-list-item-title>
+                <template #append>
+                  <v-chip size="small" variant="tonal" label>{{ store.selectedRule.sourceGoal }}</v-chip>
+                </template>
+              </v-list-item>
+              <v-list-item>
+                <v-list-item-title>Target Goal</v-list-item-title>
+                <template #append>
+                  <v-chip size="small" variant="tonal" color="info" label>{{ store.selectedRule.targetGoal }}</v-chip>
+                </template>
+              </v-list-item>
+            </template>
             <v-list-item>
               <v-list-item-title>Condition</v-list-item-title>
               <template #append>{{ conditionLabel(store.selectedRule) }}</template>

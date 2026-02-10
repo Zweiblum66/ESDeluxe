@@ -11,16 +11,37 @@ import UploadDialog from './components/UploadDialog.vue';
 import AclEditor from './components/AclEditor.vue';
 import GoalSelector from './components/GoalSelector.vue';
 import SpaceTree from './components/SpaceTree.vue';
+import type { TreeNode } from './components/SpaceTree.vue';
 import MoveDialog from './components/MoveDialog.vue';
+import ArchiveDialog from './components/ArchiveDialog.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
 import type { ContextMenuItem } from '@/components/common/ContextMenu.vue';
 import { useResponsive } from '@/composables/useResponsive';
+import { useArchiveStore } from '@/stores/archive.store';
 import type { IFileEntry, ISetAclRequest } from '@shared/types';
+
+import { useAuthStore } from '@/stores/auth.store';
 
 const route = useRoute();
 const router = useRouter();
 const store = useFilesStore();
 const responsive = useResponsive();
+const archiveStore = useArchiveStore();
+const authStore = useAuthStore();
+
+// --- Permissions ---
+const canWrite = computed(() => {
+  if (!store.currentSpace) return false;
+  return authStore.canWriteSpace(store.currentSpace);
+});
+
+// --- Current space type ---
+const currentSpaceType = computed(() => {
+  if (!store.currentSpace) return null;
+  return store.spaces.find((s) => s.name === store.currentSpace)?.type ?? null;
+});
+
+const isAclSpace = computed(() => currentSpaceType.value === 'acl');
 
 // --- Space selection ---
 const selectedSpace = ref<string>('');
@@ -36,6 +57,8 @@ const showRenameDialog = ref(false);
 const showAclEditor = ref(false);
 const showGoalSelector = ref(false);
 const showMoveDialog = ref(false);
+const showArchiveDialog = ref(false);
+const isRestoringArchive = ref(false);
 
 // --- Create folder ---
 const newFolderName = ref('');
@@ -92,6 +115,7 @@ function formatDate(ts: number): string {
 
 function fileIcon(entry: IFileEntry): string {
   if (entry.type === 'directory') return 'mdi-folder';
+  if (entry.isArchiveStub) return 'mdi-archive-arrow-down';
   const ext = entry.name.split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'mxf': case 'mov': case 'mp4': case 'avi': case 'mkv':
@@ -105,6 +129,22 @@ function fileIcon(entry: IFileEntry): string {
     default:
       return 'mdi-file';
   }
+}
+
+/** Returns the filename without extension (for files), or full name (for dirs) */
+function fileBaseName(entry: IFileEntry): string {
+  if (entry.type === 'directory') return entry.name;
+  const dotIdx = entry.name.lastIndexOf('.');
+  if (dotIdx <= 0) return entry.name; // no extension or dot-file like ".gitignore"
+  return entry.name.slice(0, dotIdx);
+}
+
+/** Returns the file extension including dot (e.g. ".mov"), or empty string */
+function fileExtension(entry: IFileEntry): string {
+  if (entry.type === 'directory') return '';
+  const dotIdx = entry.name.lastIndexOf('.');
+  if (dotIdx <= 0) return '';
+  return entry.name.slice(dotIdx);
 }
 
 // --- Navigation ---
@@ -241,6 +281,28 @@ async function handleMove(destSpace: string, destPath: string): Promise<void> {
   }
 }
 
+// --- Archive ---
+async function handleRestoreFromArchive(): Promise<void> {
+  const stubs = selectedEntryObjects.value.filter((e) => e.isArchiveStub && e.archiveInfo);
+  if (stubs.length === 0) return;
+
+  isRestoringArchive.value = true;
+  const ids = stubs.map((e) => e.archiveInfo!.catalogEntryId);
+
+  if (ids.length === 1) {
+    await archiveStore.restoreFile(ids[0]);
+  } else {
+    await archiveStore.bulkRestore(ids);
+  }
+
+  isRestoringArchive.value = false;
+  store.refresh();
+}
+
+function handleArchived(): void {
+  store.refresh();
+}
+
 // --- Context menu ---
 const contextMenu = ref({ show: false, x: 0, y: 0, items: [] as ContextMenuItem[] });
 const contextEntry = ref<IFileEntry | null>(null);
@@ -273,27 +335,48 @@ function handleTableContextMenu(event: MouseEvent): void {
       items.push({ label: 'Open', icon: 'mdi-folder-open', action: 'open' });
       items.push({ label: '', icon: '', action: '', divider: true });
     }
-    if (isFile) {
+    // Check if selection contains archive stubs
+    const hasStubs = selected.some((e) => e.isArchiveStub);
+    const allStubs = selected.every((e) => e.isArchiveStub || e.type === 'directory');
+    const hasNonStubFiles = selected.some((e) => e.type === 'file' && !e.isArchiveStub);
+
+    if (isFile && !allStubs) {
       items.push({ label: 'Download', icon: 'mdi-download', action: 'download' });
     }
-    if (isSingle) {
+    if (hasNonStubFiles && canWrite.value) {
+      items.push({ label: 'Archive to...', icon: 'mdi-archive-arrow-up', action: 'archive' });
+    }
+    if (hasStubs && canWrite.value) {
+      items.push({ label: 'Restore from Archive', icon: 'mdi-archive-arrow-down', action: 'restore-archive' });
+    }
+    if (isSingle && canWrite.value) {
       items.push({ label: 'Rename', icon: 'mdi-rename-box', action: 'rename' });
     }
-    items.push({ label: 'Move', icon: 'mdi-file-move', action: 'move' });
-    items.push({ label: 'Delete', icon: 'mdi-delete', action: 'delete', color: 'error', divider: true });
+    if (canWrite.value) {
+      items.push({ label: 'Move', icon: 'mdi-file-move', action: 'move' });
+      items.push({ label: 'Delete', icon: 'mdi-delete', action: 'delete', color: 'error', divider: true });
+    }
+    // ACL: only for ACL-type spaces and single selection
+    if (isSingle && isAclSpace.value) {
+      items.push({ label: 'Edit ACL', icon: 'mdi-shield-lock', action: 'edit-acl', divider: true });
+    }
+    // Copy path always available
+    items.push({ label: 'Copy Path', icon: 'mdi-content-copy', action: 'copy-path' });
 
     contextMenu.value = { show: true, x: event.clientX, y: event.clientY, items };
   } else {
     // Right-clicked on empty area (background)
+    const bgItems: ContextMenuItem[] = [];
+    if (canWrite.value) {
+      bgItems.push({ label: 'New Folder', icon: 'mdi-folder-plus', action: 'create-folder' });
+      bgItems.push({ label: 'Upload', icon: 'mdi-upload', action: 'upload' });
+    }
+    bgItems.push({ label: 'Refresh', icon: 'mdi-refresh', action: 'refresh' });
     contextMenu.value = {
       show: true,
       x: event.clientX,
       y: event.clientY,
-      items: [
-        { label: 'New Folder', icon: 'mdi-folder-plus', action: 'create-folder' },
-        { label: 'Upload', icon: 'mdi-upload', action: 'upload' },
-        { label: 'Refresh', icon: 'mdi-refresh', action: 'refresh' },
-      ],
+      items: bgItems,
     };
   }
 }
@@ -312,6 +395,12 @@ function handleContextAction(action: string): void {
     case 'move':
       showMoveDialog.value = true;
       break;
+    case 'archive':
+      showArchiveDialog.value = true;
+      break;
+    case 'restore-archive':
+      handleRestoreFromArchive();
+      break;
     case 'delete':
       showDeleteConfirm.value = true;
       break;
@@ -324,7 +413,43 @@ function handleContextAction(action: string): void {
     case 'refresh':
       store.refresh();
       break;
+    case 'edit-acl':
+      if (contextEntry.value) {
+        store.fetchEntryAcl(contextEntry.value);
+        showAclEditor.value = true;
+      }
+      break;
+    case 'copy-path': {
+      const paths = selectedEntryObjects.value.map((e) => e.path);
+      const text = paths.length === 1 ? paths[0] : paths.join('\n');
+      navigator.clipboard.writeText(text);
+      break;
+    }
+    case 'tree-open':
+      if (treeContextNode.value) {
+        handleTreeNavigate(treeContextNode.value.spaceName, treeContextNode.value.path);
+      }
+      break;
+    case 'tree-copy-path':
+      if (treeContextNode.value) {
+        const node = treeContextNode.value;
+        const fullPath = node.isSpace ? node.spaceName : node.path;
+        navigator.clipboard.writeText(fullPath);
+      }
+      break;
   }
+}
+
+// --- Tree context menu ---
+const treeContextNode = ref<TreeNode | null>(null);
+
+function handleTreeContextMenu(event: MouseEvent, node: TreeNode): void {
+  const items: ContextMenuItem[] = [];
+  items.push({ label: 'Open', icon: 'mdi-folder-open', action: 'tree-open' });
+  items.push({ label: 'Copy Path', icon: 'mdi-content-copy', action: 'tree-copy-path' });
+
+  contextMenu.value = { show: true, x: event.clientX, y: event.clientY, items };
+  treeContextNode.value = node;
 }
 
 // --- Sync route → store ---
@@ -405,6 +530,7 @@ onMounted(async () => {
           :current-space="store.currentSpace"
           :current-path="store.currentPath"
           @navigate="handleTreeNavigate"
+          @contextmenu="handleTreeContextMenu"
         />
       </div>
 
@@ -420,11 +546,14 @@ onMounted(async () => {
         <FileToolbar
           :selected-entries="selectedEntryObjects"
           :is-loading="store.isLoading"
+          :can-write="canWrite"
+          :is-admin="authStore.isAdmin"
           @create-folder="showCreateFolderDialog = true"
           @upload="showUploadDialog = true"
           @download="handleDownload"
           @rename="openRenameDialog"
           @move="showMoveDialog = true"
+          @archive="showArchiveDialog = true"
           @delete="showDeleteConfirm = true"
           @refresh="store.refresh()"
         />
@@ -449,25 +578,37 @@ onMounted(async () => {
               <div class="file-table__name-cell">
                 <v-icon
                   size="20"
-                  :color="(item as any).type === 'directory' ? '#f59e0b' : '#6b7280'"
+                  :color="(item as any).isArchiveStub ? '#7c3aed' : (item as any).type === 'directory' ? '#f59e0b' : '#6b7280'"
                   class="mr-2 flex-shrink-0"
                 >
                   {{ fileIcon(item as any) }}
                 </v-icon>
                 <span
                   class="file-table__name-text"
-                  :class="{ 'font-weight-medium': (item as any).type === 'directory' }"
+                  :class="{
+                    'font-weight-medium': (item as any).type === 'directory',
+                    'text-medium-emphasis': (item as any).isArchiveStub,
+                  }"
                   :title="(item as any).name"
                 >
-                  {{ (item as any).name }}
+                  <span class="file-table__name-base">{{ fileBaseName(item as any) }}</span><span v-if="fileExtension(item as any)" class="file-table__name-ext">{{ fileExtension(item as any) }}</span>
                 </span>
+                <v-chip
+                  v-if="(item as any).isArchiveStub"
+                  size="x-small"
+                  color="deep-purple"
+                  variant="tonal"
+                  class="ml-2 flex-shrink-0"
+                >
+                  Archived
+                </v-chip>
               </div>
             </template>
 
             <!-- Size column -->
             <template #item.size="{ item }">
               <span class="text-medium-emphasis">
-                {{ (item as any).type === 'directory' ? '—' : formatBytes((item as any).size) }}
+                {{ (item as any).type === 'directory' ? '—' : (item as any).isArchiveStub ? formatBytes((item as any).archiveInfo?.originalSize || 0) : formatBytes((item as any).size) }}
               </span>
             </template>
 
@@ -615,9 +756,9 @@ onMounted(async () => {
     <ConfirmDialog
       v-model="showDeleteConfirm"
       title="Delete Items"
-      :message="`Are you sure you want to delete ${store.selectedEntries.length} item(s)? This action cannot be undone.`"
-      confirm-text="Delete"
-      confirm-color="error"
+      :message="`Move ${store.selectedEntries.length} item(s) to trash? They can be recovered from the Trash view.`"
+      confirm-text="Move to Trash"
+      confirm-color="warning"
       @confirm="handleDelete"
     />
 
@@ -648,6 +789,14 @@ onMounted(async () => {
       :spaces="store.spaces"
       :is-moving="isMoving"
       @move="handleMove"
+    />
+
+    <!-- Archive Dialog -->
+    <ArchiveDialog
+      v-model="showArchiveDialog"
+      :entries="selectedEntryObjects"
+      :space-name="store.currentSpace || ''"
+      @archived="handleArchived"
     />
 
     <!-- Context Menu -->
@@ -812,10 +961,21 @@ onMounted(async () => {
   }
 
   &__name-text {
+    display: flex;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
+  }
+
+  &__name-base {
+    overflow: hidden;
     text-overflow: ellipsis;
+    flex-shrink: 1;
     min-width: 0;
+  }
+
+  &__name-ext {
+    flex-shrink: 0;
   }
 }
 </style>

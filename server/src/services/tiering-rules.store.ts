@@ -5,6 +5,8 @@ import type {
   ICreateTieringRuleRequest,
   IUpdateTieringRuleRequest,
   ITieringExecutionLog,
+  TieringTargetType,
+  ISpaceSelector,
 } from '../../../shared/types/tiering.js';
 
 // ──────────────────────────────────────────────
@@ -13,11 +15,15 @@ import type {
 
 interface RuleRow {
   id: number;
-  space_name: string;
+  space_name: string | null;
+  space_selector: string | null;
   name: string;
   description: string | null;
-  source_goal: string;
-  target_goal: string;
+  target_type: string;
+  source_goal: string | null;
+  target_goal: string | null;
+  archive_location_id: number | null;
+  archive_location_name?: string;
   condition: string;
   operator: string;
   value: string;
@@ -32,14 +38,41 @@ interface RuleRow {
   updated_at: number;
 }
 
+function parseSpaceSelector(row: RuleRow): ISpaceSelector {
+  if (row.space_selector) {
+    try {
+      return JSON.parse(row.space_selector) as ISpaceSelector;
+    } catch {
+      // Fallback for corrupt JSON
+    }
+  }
+  // Legacy fallback: construct from space_name
+  if (row.space_name) {
+    return { mode: 'explicit', spaceNames: [row.space_name] };
+  }
+  return { mode: 'explicit', spaceNames: [] };
+}
+
+function selectorToSpaceName(selector: ISpaceSelector): string | null {
+  if (selector.mode === 'explicit' && selector.spaceNames.length === 1) {
+    return selector.spaceNames[0];
+  }
+  return null;
+}
+
 function rowToRule(row: RuleRow): ITieringRule {
+  const spaceSelector = parseSpaceSelector(row);
   return {
     id: row.id,
-    spaceName: row.space_name,
+    spaceSelector,
+    spaceName: selectorToSpaceName(spaceSelector) || undefined,
     name: row.name,
     description: row.description || undefined,
-    sourceGoal: row.source_goal,
-    targetGoal: row.target_goal,
+    targetType: (row.target_type || 'goal_change') as TieringTargetType,
+    sourceGoal: row.source_goal || undefined,
+    targetGoal: row.target_goal || undefined,
+    archiveLocationId: row.archive_location_id || undefined,
+    archiveLocationName: row.archive_location_name || undefined,
     condition: row.condition as ITieringRule['condition'],
     operator: row.operator as ITieringRule['operator'],
     value: row.value,
@@ -59,19 +92,40 @@ export function listRules(spaceName?: string): ITieringRule[] {
   const db = getDatabase();
 
   if (spaceName) {
+    // Match rules that reference this space explicitly, or target all/by_type/pattern
     const stmt = db.prepare(`
-      SELECT * FROM tiering_rules WHERE space_name = ? ORDER BY name
+      SELECT r.*, al.name as archive_location_name
+      FROM tiering_rules r
+      LEFT JOIN archive_locations al ON al.id = r.archive_location_id
+      WHERE r.space_name = ?
+        OR json_extract(r.space_selector, '$.mode') IN ('all', 'by_type', 'pattern')
+        OR (json_extract(r.space_selector, '$.mode') = 'explicit'
+            AND EXISTS (
+              SELECT 1 FROM json_each(json_extract(r.space_selector, '$.spaceNames'))
+              WHERE json_each.value = ?
+            ))
+      ORDER BY r.name
     `);
-    return (stmt.all(spaceName) as RuleRow[]).map(rowToRule);
+    return (stmt.all(spaceName, spaceName) as RuleRow[]).map(rowToRule);
   }
 
-  const stmt = db.prepare(`SELECT * FROM tiering_rules ORDER BY space_name, name`);
+  const stmt = db.prepare(`
+    SELECT r.*, al.name as archive_location_name
+    FROM tiering_rules r
+    LEFT JOIN archive_locations al ON al.id = r.archive_location_id
+    ORDER BY r.name
+  `);
   return (stmt.all() as RuleRow[]).map(rowToRule);
 }
 
 export function getRule(id: number): ITieringRule | null {
   const db = getDatabase();
-  const stmt = db.prepare(`SELECT * FROM tiering_rules WHERE id = ?`);
+  const stmt = db.prepare(`
+    SELECT r.*, al.name as archive_location_name
+    FROM tiering_rules r
+    LEFT JOIN archive_locations al ON al.id = r.archive_location_id
+    WHERE r.id = ?
+  `);
   const row = stmt.get(id) as RuleRow | undefined;
   return row ? rowToRule(row) : null;
 }
@@ -79,22 +133,31 @@ export function getRule(id: number): ITieringRule | null {
 export function createRule(request: ICreateTieringRuleRequest): ITieringRule {
   const db = getDatabase();
 
+  // Normalize selector — support deprecated spaceName field
+  const selector: ISpaceSelector = request.spaceSelector
+    ?? { mode: 'explicit', spaceNames: [request.spaceName!] };
+  const selectorJson = JSON.stringify(selector);
+  const denormalizedSpaceName = selectorToSpaceName(selector);
+
   // Compute initial next_run_at (next hour boundary)
   const nextRunAt = Math.floor(Date.now() / 1000) + 3600;
 
   const stmt = db.prepare(`
     INSERT INTO tiering_rules (
-      space_name, name, description, source_goal, target_goal,
-      condition, operator, value, recursive, path_pattern, next_run_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      space_name, space_selector, name, description, target_type, source_goal, target_goal,
+      archive_location_id, condition, operator, value, recursive, path_pattern, next_run_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
-    request.spaceName,
+    denormalizedSpaceName,
+    selectorJson,
     request.name,
     request.description || null,
-    request.sourceGoal,
-    request.targetGoal,
+    request.targetType || 'goal_change',
+    request.sourceGoal || null,
+    request.targetGoal || null,
+    request.archiveLocationId || null,
     request.condition,
     request.operator,
     request.value,
@@ -104,7 +167,7 @@ export function createRule(request: ICreateTieringRuleRequest): ITieringRule {
   );
 
   const ruleId = Number(result.lastInsertRowid);
-  logger.info({ ruleId, spaceName: request.spaceName, name: request.name }, 'Tiering rule created');
+  logger.info({ ruleId, selector: selector.mode, name: request.name }, 'Tiering rule created');
 
   return getRule(ruleId)!;
 }
@@ -116,10 +179,19 @@ export function updateRule(id: number, request: IUpdateTieringRuleRequest): ITie
   const sets: string[] = ['updated_at = unixepoch()'];
   const params: unknown[] = [];
 
+  if (request.spaceSelector !== undefined) {
+    const selectorJson = JSON.stringify(request.spaceSelector);
+    sets.push('space_selector = ?');
+    params.push(selectorJson);
+    sets.push('space_name = ?');
+    params.push(selectorToSpaceName(request.spaceSelector));
+  }
   if (request.name !== undefined) { sets.push('name = ?'); params.push(request.name); }
   if (request.description !== undefined) { sets.push('description = ?'); params.push(request.description || null); }
+  if (request.targetType !== undefined) { sets.push('target_type = ?'); params.push(request.targetType); }
   if (request.sourceGoal !== undefined) { sets.push('source_goal = ?'); params.push(request.sourceGoal); }
   if (request.targetGoal !== undefined) { sets.push('target_goal = ?'); params.push(request.targetGoal); }
+  if (request.archiveLocationId !== undefined) { sets.push('archive_location_id = ?'); params.push(request.archiveLocationId || null); }
   if (request.condition !== undefined) { sets.push('condition = ?'); params.push(request.condition); }
   if (request.operator !== undefined) { sets.push('operator = ?'); params.push(request.operator); }
   if (request.value !== undefined) { sets.push('value = ?'); params.push(request.value); }
@@ -167,16 +239,23 @@ export function updateRuleRunStatus(
 
 export function getActiveRules(): ITieringRule[] {
   const db = getDatabase();
-  const stmt = db.prepare(`SELECT * FROM tiering_rules WHERE status = 'active' ORDER BY next_run_at`);
+  const stmt = db.prepare(`
+    SELECT r.*, al.name as archive_location_name
+    FROM tiering_rules r
+    LEFT JOIN archive_locations al ON al.id = r.archive_location_id
+    WHERE r.status = 'active' ORDER BY r.next_run_at
+  `);
   return (stmt.all() as RuleRow[]).map(rowToRule);
 }
 
 export function getDueRules(now: number): ITieringRule[] {
   const db = getDatabase();
   const stmt = db.prepare(`
-    SELECT * FROM tiering_rules
-    WHERE status = 'active' AND (next_run_at IS NULL OR next_run_at <= ?)
-    ORDER BY next_run_at
+    SELECT r.*, al.name as archive_location_name
+    FROM tiering_rules r
+    LEFT JOIN archive_locations al ON al.id = r.archive_location_id
+    WHERE r.status = 'active' AND (r.next_run_at IS NULL OR r.next_run_at <= ?)
+    ORDER BY r.next_run_at
   `);
   return (stmt.all(now) as RuleRow[]).map(rowToRule);
 }

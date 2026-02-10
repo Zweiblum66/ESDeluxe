@@ -11,6 +11,7 @@ import InlineMultiSelect from '@/components/common/InlineMultiSelect.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
 import type { ContextMenuItem } from '@/components/common/ContextMenu.vue';
 import { useResponsive } from '@/composables/useResponsive';
+import { useAuthStore } from '@/stores/auth.store';
 import type { InlineMultiSelectItem } from '@/components/common/InlineMultiSelect.vue';
 import type { ISpaceDetail, SpaceType } from '@shared/types';
 
@@ -20,6 +21,7 @@ const router = useRouter();
 const store = useSpacesStore();
 const usersStore = useUsersStore();
 const groupsStore = useGroupsStore();
+const authStore = useAuthStore();
 
 const columns = [
   { key: 'name', title: 'Name', sortable: true },
@@ -278,16 +280,19 @@ const contextSpaceName = ref('');
 
 function handleRowContextMenu(event: MouseEvent, item: Record<string, unknown>): void {
   contextSpaceName.value = item.name as string;
+  const items: ContextMenuItem[] = [
+    { label: 'View Details', icon: 'mdi-eye', action: 'view' },
+    { label: 'Browse Files', icon: 'mdi-file-tree', action: 'browse' },
+    { label: 'Manage Access', icon: 'mdi-shield-key', action: 'access' },
+  ];
+  if (authStore.isAdmin) {
+    items.push({ label: 'Delete', icon: 'mdi-delete', action: 'delete', color: 'error', divider: true });
+  }
   contextMenu.value = {
     show: true,
     x: event.clientX,
     y: event.clientY,
-    items: [
-      { label: 'View Details', icon: 'mdi-eye', action: 'view' },
-      { label: 'Browse Files', icon: 'mdi-file-tree', action: 'browse' },
-      { label: 'Manage Access', icon: 'mdi-shield-key', action: 'access' },
-      { label: 'Delete', icon: 'mdi-delete', action: 'delete', color: 'error', divider: true },
-    ],
+    items,
   };
 }
 
@@ -330,6 +335,7 @@ onMounted(() => {
           class="mr-2"
         />
         <v-btn
+          v-if="authStore.isAdmin"
           color="primary"
           prepend-icon="mdi-plus"
           @click="showCreateDialog = true"
@@ -364,7 +370,7 @@ onMounted(() => {
       @contextmenu:row="handleRowContextMenu"
     >
       <!-- Bulk actions -->
-      <template #bulk-actions="{ count }">
+      <template v-if="authStore.isAdmin" #bulk-actions="{ count }">
         <v-btn
           size="small"
           variant="tonal"
@@ -428,6 +434,7 @@ onMounted(() => {
           title="View space"
         />
         <v-btn
+          v-if="authStore.isAdmin"
           icon="mdi-delete"
           size="small"
           variant="text"
@@ -693,6 +700,7 @@ onMounted(() => {
         </v-card-text>
         <v-card-actions>
           <v-btn
+            v-if="authStore.isAdmin"
             color="error"
             variant="tonal"
             prepend-icon="mdi-delete"

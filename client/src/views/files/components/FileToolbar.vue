@@ -4,6 +4,8 @@ import type { IFileEntry } from '@shared/types';
 interface Props {
   selectedEntries: IFileEntry[];
   isLoading: boolean;
+  canWrite?: boolean;
+  isAdmin?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -16,12 +18,16 @@ const emit = defineEmits<{
   move: [];
   delete: [];
   refresh: [];
+  archive: [];
 }>();
 
 const hasSelection = computed(() => props.selectedEntries.length > 0);
 const singleSelection = computed(() => props.selectedEntries.length === 1);
 const hasFileSelection = computed(() =>
   props.selectedEntries.some((e) => e.type === 'file'),
+);
+const hasNonStubFiles = computed(() =>
+  props.selectedEntries.some((e) => e.type === 'file' && !e.isArchiveStub),
 );
 
 import { computed } from 'vue';
@@ -31,6 +37,7 @@ import { computed } from 'vue';
   <div class="file-toolbar">
     <div class="file-toolbar__left">
       <v-btn
+        v-if="props.canWrite !== false"
         size="small"
         variant="tonal"
         color="primary"
@@ -40,6 +47,7 @@ import { computed } from 'vue';
         New Folder
       </v-btn>
       <v-btn
+        v-if="props.canWrite !== false"
         size="small"
         variant="tonal"
         color="primary"
@@ -61,7 +69,7 @@ import { computed } from 'vue';
         Download
       </v-btn>
       <v-btn
-        v-if="singleSelection"
+        v-if="singleSelection && props.canWrite !== false"
         size="small"
         variant="tonal"
         prepend-icon="mdi-rename-box"
@@ -70,7 +78,7 @@ import { computed } from 'vue';
         Rename
       </v-btn>
       <v-btn
-        v-if="hasSelection"
+        v-if="hasSelection && props.canWrite !== false"
         size="small"
         variant="tonal"
         prepend-icon="mdi-file-move"
@@ -79,7 +87,17 @@ import { computed } from 'vue';
         Move
       </v-btn>
       <v-btn
-        v-if="hasSelection"
+        v-if="hasNonStubFiles && props.canWrite !== false"
+        size="small"
+        variant="tonal"
+        color="deep-purple"
+        prepend-icon="mdi-archive-arrow-up"
+        @click="emit('archive')"
+      >
+        Archive
+      </v-btn>
+      <v-btn
+        v-if="hasSelection && props.canWrite !== false"
         size="small"
         variant="tonal"
         color="error"

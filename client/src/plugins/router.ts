@@ -16,7 +16,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    redirect: '/users',
+    redirect: '/files',
   },
   {
     path: '/dashboard',
@@ -26,7 +26,7 @@ const routes: RouteRecordRaw[] = [
       layout: 'app',
       title: 'Dashboard',
       requiresAuth: true,
-      section: 'management',
+      section: 'system',
     },
   },
   {
@@ -37,6 +37,7 @@ const routes: RouteRecordRaw[] = [
       layout: 'app',
       title: 'Users',
       requiresAuth: true,
+      requiresAdmin: true,
       section: 'management',
       icon: 'mdi-account-multiple',
     },
@@ -49,6 +50,7 @@ const routes: RouteRecordRaw[] = [
       layout: 'app',
       title: 'Groups',
       requiresAuth: true,
+      requiresAdmin: true,
       section: 'management',
       icon: 'mdi-account-group',
     },
@@ -61,6 +63,7 @@ const routes: RouteRecordRaw[] = [
       layout: 'app',
       title: 'Media Spaces',
       requiresAuth: true,
+      requiresAdminOrManager: true,
       section: 'management',
       icon: 'mdi-folder-multiple',
     },
@@ -73,8 +76,22 @@ const routes: RouteRecordRaw[] = [
       layout: 'app',
       title: 'Access',
       requiresAuth: true,
+      requiresAdminOrManager: true,
       section: 'management',
       icon: 'mdi-shield-key',
+    },
+  },
+  {
+    path: '/roles',
+    name: 'roles',
+    component: () => import('@/views/roles/RolesView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Permissions',
+      requiresAuth: true,
+      requiresAdmin: true,
+      section: 'management',
+      icon: 'mdi-shield-account',
     },
   },
   {
@@ -85,6 +102,7 @@ const routes: RouteRecordRaw[] = [
       layout: 'app',
       title: 'QoS',
       requiresAuth: true,
+      requiresAdmin: true,
       section: 'management',
       icon: 'mdi-speedometer',
     },
@@ -133,8 +151,69 @@ const routes: RouteRecordRaw[] = [
       layout: 'app',
       title: 'Automated Tiering',
       requiresAuth: true,
+      requiresAdmin: true,
       section: 'management',
       icon: 'mdi-swap-vertical-bold',
+    },
+  },
+  {
+    path: '/tiering-browser',
+    name: 'tiering-browser',
+    component: () => import('@/views/tiering-browser/TieringBrowserView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Tiering Browser',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-layers-triple',
+    },
+  },
+  {
+    path: '/tiering-browser/:spaceName',
+    name: 'tiering-browser-space',
+    component: () => import('@/views/tiering-browser/TieringBrowserView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Tiering Browser',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-layers-triple',
+    },
+  },
+  {
+    path: '/tiering-browser/:spaceName/:pathMatch(.*)*',
+    name: 'tiering-browser-path',
+    component: () => import('@/views/tiering-browser/TieringBrowserView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Tiering Browser',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-layers-triple',
+    },
+  },
+  {
+    path: '/archive',
+    name: 'archive',
+    component: () => import('@/views/archive/ArchiveView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Archive',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-archive',
+    },
+  },
+  {
+    path: '/trash',
+    name: 'trash',
+    component: () => import('@/views/trash/TrashView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Trash',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-delete',
     },
   },
 ];
@@ -166,9 +245,22 @@ router.beforeEach(async (to, _from, next) => {
 
   if (requiresAuth && !authStore.isAuthenticated) {
     next({ name: 'login', query: { redirect: to.fullPath } });
-  } else {
-    next();
+    return;
   }
+
+  // Admin-only route guard
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    next({ name: 'files' });
+    return;
+  }
+
+  // Admin-or-manager route guard (spaces, access views)
+  if (to.meta.requiresAdminOrManager && !authStore.isAdmin && !authStore.isSomeSpaceManager) {
+    next({ name: 'files' });
+    return;
+  }
+
+  next();
 });
 
 // Close mobile navigation drawer on route change

@@ -8,3 +8,6 @@ export * from './access';
 export * from './filesystem';
 export * from './goals';
 export * from './tiering';
+export * from './archive';
+export * from './trash';
+export * from './roles';

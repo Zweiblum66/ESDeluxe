@@ -5,6 +5,7 @@ import { useAccessStore } from '@/stores/access.store';
 import { useSpacesStore } from '@/stores/spaces.store';
 import { useUsersStore } from '@/stores/users.store';
 import { useGroupsStore } from '@/stores/groups.store';
+import { useAuthStore } from '@/stores/auth.store';
 import PageHeader from '@/components/common/PageHeader.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
 import type { ContextMenuItem } from '@/components/common/ContextMenu.vue';
@@ -17,6 +18,7 @@ const store = useAccessStore();
 const spacesStore = useSpacesStore();
 const usersStore = useUsersStore();
 const groupsStore = useGroupsStore();
+const authStore = useAuthStore();
 
 const leftSearch = ref<string | null>('');
 
@@ -26,23 +28,33 @@ const contextItemKey = ref<string | null>(null);
 
 // Load all entity lists on mount
 onMounted(async () => {
+  // Force space managers into space perspective (they can't browse all users/groups)
+  if (!authStore.isAdmin && store.perspective !== 'space') {
+    store.setPerspective('space');
+  }
   await Promise.all([
     spacesStore.fetchSpaces(),
-    usersStore.fetchUsers(),
-    groupsStore.fetchGroups(),
+    ...(authStore.isAdmin ? [usersStore.fetchUsers(), groupsStore.fetchGroups()] : []),
   ]);
 });
 
 // Left panel items based on current perspective
 const leftPanelItems = computed(() => {
   switch (store.perspective) {
-    case 'space':
-      return spacesStore.spaces.map((s) => ({
+    case 'space': {
+      // Space managers only see their managed spaces; admins see all
+      let spaces = spacesStore.spaces;
+      if (!authStore.isAdmin) {
+        const managedSet = new Set(authStore.managedSpaces);
+        spaces = spaces.filter((s) => managedSet.has(s.name));
+      }
+      return spaces.map((s) => ({
         key: s.name,
         label: s.name,
         subtitle: s.type,
         icon: 'mdi-folder-network',
       }));
+    }
     case 'user':
       return usersStore.users.map((u) => ({
         key: u.username,
@@ -147,6 +159,7 @@ function handleContextAction(action: string): void {
     <PageHeader title="Access Management">
       <template #actions>
         <v-btn-toggle
+          v-if="authStore.isAdmin"
           :model-value="store.perspective"
           @update:model-value="handlePerspectiveChange"
           mandatory

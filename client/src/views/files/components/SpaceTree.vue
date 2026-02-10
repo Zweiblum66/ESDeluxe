@@ -31,7 +31,13 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   navigate: [spaceName: string, path: string];
   select: [spaceName: string, path: string];
+  contextmenu: [event: MouseEvent, node: TreeNode];
 }>();
+
+function handleNodeContextMenu(event: MouseEvent, node: TreeNode): void {
+  event.preventDefault();
+  emit('contextmenu', event, node);
+}
 
 const store = useFilesStore();
 
@@ -181,6 +187,7 @@ function spaceTypeColor(type?: string): string {
             'space-tree__node--selected': selectionMode && selectedNodeId === spaceNode.id,
           }"
           @click="handleNodeClick(spaceNode)"
+          @contextmenu="handleNodeContextMenu($event, spaceNode)"
         >
           <v-btn
             icon
@@ -221,6 +228,7 @@ function spaceTypeColor(type?: string): string {
             :selected-node-id="selectedNodeId"
             @click-node="handleNodeClick"
             @toggle-node="toggleExpand"
+            @contextmenu-node="(ev, n) => handleNodeContextMenu(ev, n)"
           />
         </template>
       </template>

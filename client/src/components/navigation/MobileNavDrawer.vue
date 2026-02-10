@@ -2,16 +2,20 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useUiStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 import type { ActiveSection } from '@/stores/ui.store';
 
 const route = useRoute();
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 
 interface NavItem {
   title: string;
   icon: string;
   to: string;
   routeName: string;
+  adminOnly?: boolean;
+  spaceManagerVisible?: boolean;
 }
 
 interface SectionDef {
@@ -19,6 +23,7 @@ interface SectionDef {
   icon: string;
   label: string;
   items: NavItem[];
+  adminOnly?: boolean;
 }
 
 const sections: SectionDef[] = [
@@ -27,13 +32,16 @@ const sections: SectionDef[] = [
     icon: 'mdi-view-dashboard',
     label: 'Management',
     items: [
-      { title: 'Users', icon: 'mdi-account-multiple', to: '/users', routeName: 'users' },
-      { title: 'Groups', icon: 'mdi-account-group', to: '/groups', routeName: 'groups' },
-      { title: 'Media Spaces', icon: 'mdi-folder-multiple', to: '/spaces', routeName: 'spaces' },
+      { title: 'Users', icon: 'mdi-account-multiple', to: '/users', routeName: 'users', adminOnly: true },
+      { title: 'Groups', icon: 'mdi-account-group', to: '/groups', routeName: 'groups', adminOnly: true },
+      { title: 'Media Spaces', icon: 'mdi-folder-multiple', to: '/spaces', routeName: 'spaces', adminOnly: true, spaceManagerVisible: true },
       { title: 'File Browser', icon: 'mdi-file-tree', to: '/files', routeName: 'files' },
-      { title: 'Tiering', icon: 'mdi-swap-vertical-bold', to: '/tiering', routeName: 'tiering' },
-      { title: 'Access', icon: 'mdi-shield-key', to: '/access', routeName: 'access' },
-      { title: 'QoS', icon: 'mdi-speedometer', to: '/qos', routeName: 'qos' },
+      { title: 'Tiering', icon: 'mdi-swap-vertical-bold', to: '/tiering', routeName: 'tiering', adminOnly: true },
+      { title: 'Tiering Browser', icon: 'mdi-layers-triple', to: '/tiering-browser', routeName: 'tiering-browser' },
+      { title: 'Archive', icon: 'mdi-archive', to: '/archive', routeName: 'archive' },
+      { title: 'Access', icon: 'mdi-shield-key', to: '/access', routeName: 'access', adminOnly: true, spaceManagerVisible: true },
+      { title: 'Limited Admin', icon: 'mdi-shield-account', to: '/roles', routeName: 'roles', adminOnly: true },
+      { title: 'QoS', icon: 'mdi-speedometer', to: '/qos', routeName: 'qos', adminOnly: true },
       { title: 'Trash', icon: 'mdi-delete', to: '/trash', routeName: 'trash' },
     ],
   },
@@ -41,8 +49,9 @@ const sections: SectionDef[] = [
     id: 'synchronization',
     icon: 'mdi-sync',
     label: 'Sync',
+    adminOnly: true,
     items: [
-      { title: 'Sync Status', icon: 'mdi-sync', to: '/sync', routeName: 'sync' },
+      { title: 'Sync Status', icon: 'mdi-sync', to: '/sync', routeName: 'sync', adminOnly: true },
     ],
   },
   {
@@ -51,13 +60,28 @@ const sections: SectionDef[] = [
     label: 'System',
     items: [
       { title: 'Dashboard', icon: 'mdi-monitor-dashboard', to: '/dashboard', routeName: 'dashboard' },
-      { title: 'Settings', icon: 'mdi-cog', to: '/settings', routeName: 'settings' },
+      { title: 'Settings', icon: 'mdi-cog', to: '/settings', routeName: 'settings', adminOnly: true },
     ],
   },
 ];
 
+const filteredSections = computed(() => {
+  if (authStore.isAdmin) return sections;
+  return sections
+    .filter((s) => !s.adminOnly)
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((item) => {
+        if (!item.adminOnly) return true;
+        if (item.spaceManagerVisible && authStore.isSomeSpaceManager) return true;
+        return false;
+      }),
+    }))
+    .filter((s) => s.items.length > 0);
+});
+
 const currentItems = computed(() => {
-  const section = sections.find((s) => s.id === uiStore.activeSection);
+  const section = filteredSections.value.find((s) => s.id === uiStore.activeSection);
   return section?.items || [];
 });
 
@@ -85,7 +109,7 @@ function handleSectionClick(sectionId: ActiveSection): void {
     <!-- Section tabs -->
     <div class="mobile-nav__sections">
       <button
-        v-for="section in sections"
+        v-for="section in filteredSections"
         :key="section.id"
         class="mobile-nav__section-btn"
         :class="{ 'mobile-nav__section-btn--active': uiStore.activeSection === section.id }"

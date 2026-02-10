@@ -10,12 +10,20 @@ export interface ILoginRequest {
   password: string;
 }
 
+/** Per-space permission for the current user */
+export interface IUserSpacePermission {
+  spaceName: string;
+  accessType: 'readwrite' | 'readonly' | 'admin';
+}
+
 /** Login response */
 export interface ILoginResponse {
   token: string;
   user: {
     username: string;
     isAdmin: boolean;
+    spaces: IUserSpacePermission[];
+    managedSpaces: string[];
   };
   backends: AuthBackendType[];
 }
@@ -24,6 +32,8 @@ export interface ILoginResponse {
 export interface ICurrentUser {
   username: string;
   isAdmin: boolean;
+  spaces?: IUserSpacePermission[];
+  managedSpaces?: string[];
 }
 
 /** Auth backends response */

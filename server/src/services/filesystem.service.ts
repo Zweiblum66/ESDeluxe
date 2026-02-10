@@ -9,6 +9,7 @@ import { PathTraversalError } from '../utils/path-security.js';
 import { logger } from '../utils/logger.js';
 import * as efsCli from './efs-cli/commands.js';
 import * as esSpaces from './editshare-api/spaces.service.js';
+import { readStubFile } from './archive/archive.service.js';
 import type {
   IDirectoryListing,
   IFileAcl,
@@ -112,9 +113,9 @@ export async function listDirectory(
     return remainder !== '' && !remainder.includes('/');
   });
 
-  // Filter out hidden .DS_Store and ._ files by default
+  // Filter out hidden .DS_Store, ._ files, and .trash directory by default
   const visibleEntries = directChildren.filter(
-    (e) => !e.name.startsWith('._') && e.name !== '.DS_Store',
+    (e) => !e.name.startsWith('._') && e.name !== '.DS_Store' && e.name !== '.trash',
   );
 
   // Sort: directories first, then alphabetically
@@ -122,6 +123,29 @@ export async function listDirectory(
     if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
+
+  // Detect archive stubs (small files that might be JSON stubs)
+  const STUB_THRESHOLD = 4096;
+  await Promise.all(
+    visibleEntries.map(async (entry) => {
+      if (entry.type !== 'file' || entry.size > STUB_THRESHOLD) return;
+      try {
+        const entryAbsPath = resolveSpacePath(spaceName, (await getSpaceInfo(spaceName)).type, entry.path);
+        const stub = await readStubFile(entryAbsPath);
+        if (stub) {
+          entry.isArchiveStub = true;
+          entry.archiveInfo = {
+            originalSize: stub.originalSize,
+            archiveLocationName: stub.archiveLocationName,
+            archivedAt: stub.archivedAt,
+            catalogEntryId: stub.catalogEntryId,
+          };
+        }
+      } catch {
+        // Ignore stub detection errors
+      }
+    }),
+  );
 
   // Compute totals
   let totalSize = 0;
@@ -169,7 +193,7 @@ export async function listSubdirectories(
   }
 
   const dirs = dirents
-    .filter((d) => d.isDirectory() && !d.name.startsWith('._') && d.name !== '.DS_Store')
+    .filter((d) => d.isDirectory() && !d.name.startsWith('._') && d.name !== '.DS_Store' && d.name !== '.trash')
     .map((d) => {
       const relPath = relativePath ? `${relativePath}/${d.name}` : d.name;
       return { name: d.name, path: relPath };

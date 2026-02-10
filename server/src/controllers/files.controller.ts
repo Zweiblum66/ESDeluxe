@@ -4,6 +4,8 @@ import { lookup } from 'mime-types';
 import { ValidationError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import * as fsService from '../services/filesystem.service.js';
+import * as trashService from '../services/trash/trash.service.js';
+import * as trashStore from '../services/trash/trash.store.js';
 
 /** Extract :name param safely (Express v5 params can be string | string[]) */
 function getSpaceName(req: Request): string {
@@ -156,6 +158,8 @@ export async function createInPath(req: Request, res: Response): Promise<void> {
 /**
  * DELETE /api/v1/spaces/:name/files/*
  * Delete a file or folder.
+ * When trash is enabled, moves to trash (EFS snapshot) instead of permanent delete.
+ * Pass ?permanent=true to bypass trash and permanently delete.
  */
 export async function deletePath(req: Request, res: Response): Promise<void> {
   const spaceName = getSpaceName(req);
@@ -165,8 +169,18 @@ export async function deletePath(req: Request, res: Response): Promise<void> {
     throw new ValidationError('Cannot delete the space root');
   }
 
-  await fsService.deleteEntry(spaceName, filePath);
-  res.json({ message: `Deleted: ${filePath}` });
+  const permanent = req.query.permanent === 'true';
+  const trashConfig = trashStore.getConfig();
+
+  if (!permanent && trashConfig.enabled) {
+    // Move to trash via EFS snapshot
+    const entry = await trashService.moveToTrash(spaceName, filePath, 'admin');
+    res.json({ message: `Moved to trash: ${filePath}`, trashed: true, trashId: entry.id });
+  } else {
+    // Permanent delete (trash disabled or explicit bypass)
+    await fsService.deleteEntry(spaceName, filePath);
+    res.json({ message: `Deleted: ${filePath}`, trashed: false });
+  }
 }
 
 /**

@@ -37,6 +37,12 @@ export class AuthenticationError extends AppError {
   }
 }
 
+export class ForbiddenError extends AppError {
+  constructor(message = 'Access denied') {
+    super(message, 403, 'FORBIDDEN');
+  }
+}
+
 export class ApiError extends AppError {
   constructor(message: string, statusCode = 502, details?: unknown) {
     super(message, statusCode, 'API_ERROR', details);
