@@ -163,10 +163,17 @@ function getPoolUsage(poolName: string): number {
   return qosStore.getPoolUsage(poolName);
 }
 
-// Drag and drop (simple implementation - can be enhanced with vuedraggable)
-async function onPoolsReordered(newOrder: IPool[]) {
+// Move pool up or down by swapping with neighbor
+async function movePool(index: number, direction: 'up' | 'down') {
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= pools.value.length) return;
+
   try {
-    await qosStore.reorderPools(newOrder);
+    const updatedPools = [...pools.value];
+    const temp = updatedPools[index];
+    updatedPools[index] = updatedPools[targetIndex];
+    updatedPools[targetIndex] = temp;
+    await qosStore.reorderPools(updatedPools);
     showSuccess('Pool order updated');
   } catch (err) {
     showError('Failed to reorder pools');
@@ -250,6 +257,8 @@ async function onPoolsReordered(newOrder: IPool[]) {
           @delete="deletePool(index)"
           @add-above="addPool('above', index)"
           @add-below="addPool('below', index)"
+          @move-up="movePool(index, 'up')"
+          @move-down="movePool(index, 'down')"
           @remove-consumer="(consumerIndex) => removeConsumer(index, consumerIndex)"
           @add-consumer="(consumers) => addConsumer(index, consumers)"
         />

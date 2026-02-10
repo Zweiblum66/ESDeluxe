@@ -5,6 +5,8 @@ import { useSpacesStore } from '@/stores/spaces.store';
 import PageHeader from '@/components/common/PageHeader.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import ManagerAssignDialog from './components/ManagerAssignDialog.vue';
+import CapabilitiesDialog from './components/CapabilitiesDialog.vue';
+import type { ISpaceManagerCapabilities } from '@shared/types';
 
 const rolesStore = useRolesStore();
 const spacesStore = useSpacesStore();
@@ -15,6 +17,10 @@ const spaceSearch = ref('');
 const showAssignDialog = ref(false);
 const showRemoveConfirm = ref(false);
 const removeTarget = ref<{ type: 'user' | 'group'; name: string } | null>(null);
+
+// Capabilities dialog state
+const showCapsDialog = ref(false);
+const capsTarget = ref<{ username: string; capabilities: ISpaceManagerCapabilities } | null>(null);
 
 // ── Computed ──
 const filteredSpaces = computed(() => {
@@ -77,12 +83,44 @@ async function handleRemove(): Promise<void> {
   await rolesStore.fetchAll();
 }
 
+function openCapsDialog(username: string, capabilities: ISpaceManagerCapabilities): void {
+  capsTarget.value = { username, capabilities };
+  showCapsDialog.value = true;
+}
+
+async function handleCapsSaved(): Promise<void> {
+  // Also refresh the full list to update any capability-dependent UI
+  await rolesStore.fetchAll();
+}
+
 function formatDate(ts: number): string {
   return new Date(ts * 1000).toLocaleDateString('en-GB', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   });
+}
+
+function formatCapsSummary(caps: ISpaceManagerCapabilities): string {
+  const parts: string[] = [];
+  parts.push(caps.canManageUsers ? 'Users' : '');
+  parts.push(caps.canManageGroups ? 'Groups' : '');
+  if (caps.canManageQuota) {
+    if (caps.maxQuotaBytes != null) {
+      const gb = caps.maxQuotaBytes / (1024 * 1024 * 1024);
+      const label = gb >= 1024 ? `${Math.round(gb / 1024)} TB` : `${Math.round(gb)} GB`;
+      parts.push(`Quota (max ${label})`);
+    } else {
+      parts.push('Quota');
+    }
+  }
+  const active = parts.filter(Boolean);
+  if (active.length === 0) return 'No capabilities';
+  return active.join(', ');
+}
+
+function allCapsEnabled(caps: ISpaceManagerCapabilities): boolean {
+  return caps.canManageUsers && caps.canManageGroups && caps.canManageQuota && caps.maxQuotaBytes == null;
 }
 
 // ── Lifecycle ──
@@ -198,8 +236,9 @@ onMounted(async () => {
                   <thead>
                     <tr>
                       <th>Username</th>
+                      <th>Capabilities</th>
                       <th>Assigned</th>
-                      <th class="text-end" style="width: 60px;"></th>
+                      <th class="text-end" style="width: 90px;"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -210,15 +249,48 @@ onMounted(async () => {
                           {{ u.username }}
                         </div>
                       </td>
+                      <td>
+                        <div class="d-flex align-center ga-1 flex-wrap">
+                          <v-chip v-if="allCapsEnabled(u.capabilities)" size="x-small" variant="tonal" color="success">
+                            Full Access
+                          </v-chip>
+                          <template v-else>
+                            <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageUsers ? 'success' : 'default'">
+                              <v-icon start size="12">{{ u.capabilities.canManageUsers ? 'mdi-check' : 'mdi-close' }}</v-icon>
+                              Users
+                            </v-chip>
+                            <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageGroups ? 'success' : 'default'">
+                              <v-icon start size="12">{{ u.capabilities.canManageGroups ? 'mdi-check' : 'mdi-close' }}</v-icon>
+                              Groups
+                            </v-chip>
+                            <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageQuota ? 'success' : 'default'">
+                              <v-icon start size="12">{{ u.capabilities.canManageQuota ? 'mdi-check' : 'mdi-close' }}</v-icon>
+                              Quota
+                            </v-chip>
+                            <v-chip v-if="u.capabilities.canManageQuota && u.capabilities.maxQuotaBytes" size="x-small" variant="outlined" color="warning">
+                              max {{ u.capabilities.maxQuotaBytes >= 1024 * 1024 * 1024 * 1024 ? Math.round(u.capabilities.maxQuotaBytes / (1024 * 1024 * 1024 * 1024)) + ' TB' : Math.round(u.capabilities.maxQuotaBytes / (1024 * 1024 * 1024)) + ' GB' }}
+                            </v-chip>
+                          </template>
+                        </div>
+                      </td>
                       <td class="text-medium-emphasis">{{ formatDate(u.assignedAt) }}</td>
                       <td class="text-end">
-                        <v-btn
-                          size="x-small"
-                          variant="tonal"
-                          color="error"
-                          icon="mdi-close"
-                          @click="openRemoveConfirm('user', u.username)"
-                        />
+                        <div class="d-flex ga-1 justify-end">
+                          <v-btn
+                            size="x-small"
+                            variant="tonal"
+                            color="primary"
+                            icon="mdi-shield-lock-outline"
+                            @click="openCapsDialog(u.username, u.capabilities)"
+                          />
+                          <v-btn
+                            size="x-small"
+                            variant="tonal"
+                            color="error"
+                            icon="mdi-close"
+                            @click="openRemoveConfirm('user', u.username)"
+                          />
+                        </div>
                       </td>
                     </tr>
                   </tbody>
@@ -296,6 +368,16 @@ onMounted(async () => {
       confirm-text="Remove"
       confirm-color="error"
       @confirm="handleRemove"
+    />
+
+    <!-- Capabilities Dialog -->
+    <CapabilitiesDialog
+      v-if="capsTarget"
+      v-model="showCapsDialog"
+      :space-name="selectedSpaceName"
+      :username="capsTarget.username"
+      :capabilities="capsTarget.capabilities"
+      @saved="handleCapsSaved"
     />
   </div>
 </template>

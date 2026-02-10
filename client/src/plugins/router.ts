@@ -223,11 +223,33 @@ const router = createRouter({
   routes,
 });
 
+// ── Data prefetch after authentication ──────────────────
+// Silently fetch users/spaces/groups in background right after login/auth-check
+// so they're already in Pinia stores when the user navigates to management tabs.
+let _prefetched = false;
+
+function prefetchData(authStore: ReturnType<typeof useAuthStore>): void {
+  if (_prefetched) return;
+  _prefetched = true;
+
+  if (authStore.isAdmin) {
+    // Admin: prefetch users, spaces, groups
+    import('@/stores/users.store').then(({ useUsersStore }) => useUsersStore().fetchUsers());
+    import('@/stores/spaces.store').then(({ useSpacesStore }) => useSpacesStore().fetchSpaces());
+    import('@/stores/groups.store').then(({ useGroupsStore }) => useGroupsStore().fetchGroups());
+  } else if (authStore.isSomeSpaceManager) {
+    // Space manager: prefetch spaces only
+    import('@/stores/spaces.store').then(({ useSpacesStore }) => useSpacesStore().fetchSpaces());
+  }
+}
+
 // Navigation guard
 router.beforeEach(async (to, _from, next) => {
   const requiresAuth = to.meta.requiresAuth !== false;
 
   if (!requiresAuth) {
+    // Reset prefetch flag on logout (navigating to /login)
+    if (to.name === 'login') _prefetched = false;
     next();
     return;
   }
@@ -247,6 +269,9 @@ router.beforeEach(async (to, _from, next) => {
     next({ name: 'login', query: { redirect: to.fullPath } });
     return;
   }
+
+  // Prefetch management data in background (fire-and-forget, runs once per session)
+  prefetchData(authStore);
 
   // Admin-only route guard
   if (to.meta.requiresAdmin && !authStore.isAdmin) {

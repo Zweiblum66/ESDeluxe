@@ -1,7 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ForbiddenError } from '../utils/errors.js';
 import { isUserSpaceManager } from '../services/space-manager.store.js';
+import { getCapabilities } from '../services/manager-capabilities.store.js';
 import { logger } from '../utils/logger.js';
+
+/** Capability types that can be required on a route */
+export type SpaceCapability = 'manage_users' | 'manage_groups' | 'manage_quota';
 
 /**
  * Extracts space name from Express v5 route params.
@@ -17,11 +21,14 @@ function extractSpaceName(req: Request): string | null {
  * Middleware that requires the user to be either a global admin
  * or a space manager for the space identified by req.params.name.
  *
+ * Optionally checks a specific capability when provided.
+ * If no capability is specified, any space manager can access the route.
+ *
  * Use this instead of requireAdmin on endpoints that space managers
  * should be able to access (e.g., user/group management on a space,
  * quota changes, goal setting).
  */
-export function requireSpaceManagement() {
+export function requireSpaceManagement(capability?: SpaceCapability) {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     // Global admins bypass all checks
     if (req.user?.isAdmin) {
@@ -46,6 +53,29 @@ export function requireSpaceManagement() {
         next(new ForbiddenError(`Not a manager of space '${spaceName}'`));
         return;
       }
+
+      // If no specific capability required, allow (backward-compatible)
+      if (!capability) {
+        next();
+        return;
+      }
+
+      // Check specific capability
+      const caps = getCapabilities(spaceName, req.user.username);
+
+      if (capability === 'manage_users' && !caps.canManageUsers) {
+        next(new ForbiddenError('You do not have permission to manage users on this space'));
+        return;
+      }
+      if (capability === 'manage_groups' && !caps.canManageGroups) {
+        next(new ForbiddenError('You do not have permission to manage groups on this space'));
+        return;
+      }
+      if (capability === 'manage_quota' && !caps.canManageQuota) {
+        next(new ForbiddenError('You do not have permission to change quota on this space'));
+        return;
+      }
+
       next();
     } catch (err) {
       logger.error(

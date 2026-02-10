@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import api from '@/plugins/axios';
-import type { ISpaceManagersResponse } from '@shared/types';
+import type { ISpaceManagersResponse, IUpdateCapabilitiesRequest, ISpaceManagerCapabilities } from '@shared/types';
 
 export const useRolesStore = defineStore('roles', () => {
   // --- State ---
@@ -99,6 +99,29 @@ export const useRolesStore = defineStore('roles', () => {
     }
   }
 
+  /** Update capabilities for a user manager on a space */
+  async function updateCapabilities(
+    spaceName: string,
+    username: string,
+    caps: IUpdateCapabilitiesRequest,
+  ): Promise<boolean> {
+    error.value = null;
+    try {
+      await api.put<{ data: { spaceName: string; username: string; capabilities: ISpaceManagerCapabilities } }>(
+        `/api/v1/roles/spaces/${encodeURIComponent(spaceName)}/users/${encodeURIComponent(username)}/capabilities`,
+        caps,
+      );
+      // Refresh data for this space to get updated capabilities
+      await fetchForSpace(spaceName);
+      return true;
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      error.value = e.response?.data?.message || 'Failed to update capabilities';
+      console.error('Failed to update capabilities:', err);
+      return false;
+    }
+  }
+
   return {
     assignments,
     selectedSpace,
@@ -108,5 +131,6 @@ export const useRolesStore = defineStore('roles', () => {
     fetchForSpace,
     assignManager,
     removeManager,
+    updateCapabilities,
   };
 });

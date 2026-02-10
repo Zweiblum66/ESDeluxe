@@ -6,6 +6,7 @@ import * as esSpaces from '../services/editshare-api/spaces.service.js';
 import * as esGroups from '../services/editshare-api/groups.service.js';
 import { getUserSpaces } from '../services/editshare-api/users.service.js';
 import { getUserManagedSpaces, removeAllManagersForSpace } from '../services/space-manager.store.js';
+import { getCapabilities } from '../services/manager-capabilities.store.js';
 import { setGroupAccessType, removeGroupAccessType } from '../services/group-access.store.js';
 import {
   setUserPermissionOverride,
@@ -133,10 +134,24 @@ export async function createSpace(req: Request, res: Response): Promise<void> {
 
 /**
  * PUT /api/v1/spaces/:name
- * Placeholder — ES API doesn't support direct space updates easily.
+ * Update space properties (e.g., quota).
+ * Space managers with manage_quota capability can change quota,
+ * subject to maxQuotaBytes limit if configured.
  */
 export async function updateSpace(req: Request, res: Response): Promise<void> {
   const name = getSpaceName(req);
+  const { quota } = req.body;
+
+  // Enforce quota limit for non-admin space managers
+  if (quota !== undefined && req.user && !req.user.isAdmin) {
+    const caps = getCapabilities(name, req.user.username);
+    if (caps.maxQuotaBytes != null && quota > caps.maxQuotaBytes) {
+      const limitGB = Math.round(caps.maxQuotaBytes / (1024 * 1024 * 1024));
+      throw new ValidationError(
+        `Quota exceeds your limit of ${limitGB} GB. Contact an administrator to increase it.`,
+      );
+    }
+  }
 
   // Currently the ES Storage API doesn't have a direct PATCH/PUT for space properties.
   // This could be implemented later if the API supports it.

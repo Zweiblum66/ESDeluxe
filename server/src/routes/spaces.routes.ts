@@ -21,23 +21,27 @@ router.get('/:name', requireSpaceAccess('read'), asyncHandler(spacesController.g
 // POST / — create space (admin only)
 router.post('/', requireAdmin, asyncHandler(spacesController.createSpace));
 
-// PUT /:name — update space / quota (admin or space manager)
-router.put('/:name', requireSpaceManagement(), asyncHandler(spacesController.updateSpace));
+// PUT /:name — update space / quota (admin or space manager with quota capability)
+router.put('/:name', requireSpaceManagement('manage_quota'), asyncHandler(spacesController.updateSpace));
 
 // DELETE /:name — delete space (admin only)
 router.delete('/:name', requireAdmin, asyncHandler(spacesController.deleteSpace));
 
-// Space user/group management — admin or space manager
+// Space user management — admin or space manager with manage_users capability
 router.get('/:name/users', requireSpaceManagement(), asyncHandler(spacesController.getSpaceUsers));
-router.post('/:name/users', requireSpaceManagement(), asyncHandler(spacesController.addUserToSpace));
-router.put('/:name/users/:username', requireSpaceManagement(), asyncHandler(spacesController.setUserAccess));
-router.delete('/:name/users/:username', requireSpaceManagement(), asyncHandler(spacesController.removeUserFromSpace));
+router.post('/:name/users', requireSpaceManagement('manage_users'), asyncHandler(spacesController.addUserToSpace));
+router.put('/:name/users/:username', requireSpaceManagement('manage_users'), asyncHandler(spacesController.setUserAccess));
+router.delete('/:name/users/:username', requireSpaceManagement('manage_users'), asyncHandler(spacesController.removeUserFromSpace));
+
+// Space group management — admin or space manager with manage_groups capability
 router.get('/:name/groups', requireSpaceManagement(), asyncHandler(spacesController.getSpaceGroups));
-router.post('/:name/groups', requireSpaceManagement(), asyncHandler(spacesController.addGroupToSpace));
-router.put('/:name/groups/:groupName', requireSpaceManagement(), asyncHandler(spacesController.setGroupAccess));
-router.delete('/:name/groups/:groupName', requireSpaceManagement(), asyncHandler(spacesController.removeGroupFromSpace));
+router.post('/:name/groups', requireSpaceManagement('manage_groups'), asyncHandler(spacesController.addGroupToSpace));
+router.put('/:name/groups/:groupName', requireSpaceManagement('manage_groups'), asyncHandler(spacesController.setGroupAccess));
+router.delete('/:name/groups/:groupName', requireSpaceManagement('manage_groups'), asyncHandler(spacesController.removeGroupFromSpace));
+
+// Permission overrides — admin or space manager with manage_users capability
 router.get('/:name/permission-overrides', requireSpaceManagement(), asyncHandler(spacesController.getPermissionOverrides));
-router.delete('/:name/users/:username/override', requireSpaceManagement(), asyncHandler(spacesController.removePermissionOverride));
+router.delete('/:name/users/:username/override', requireSpaceManagement('manage_users'), asyncHandler(spacesController.removePermissionOverride));
 
 // GET /:name/goal — get space-level storage goal (read access)
 router.get('/:name/goal', requireSpaceAccess('read'), asyncHandler(goalsController.getSpaceGoal));

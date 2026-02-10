@@ -5,6 +5,10 @@ import {
   setUserPermissionOverride,
   removeUserPermissionOverride,
 } from './user-permission-override.store.js';
+import {
+  deleteCapabilities,
+  deleteSpaceCapabilities,
+} from './manager-capabilities.store.js';
 
 // ── Types ──
 
@@ -212,6 +216,7 @@ export function assignUserAsManager(spaceName: string, username: string): void {
  */
 export function removeUserAsManager(spaceName: string, username: string): void {
   removeUserPermissionOverride(spaceName, username);
+  deleteCapabilities(spaceName, username);
   invalidateSpaceCache(spaceName);
   logger.info({ spaceName, username }, 'User removed as space manager');
 }
@@ -272,6 +277,9 @@ export function removeAllManagersForSpace(spaceName: string): void {
     WHERE space_name = ? AND access_type = 'admin'
   `);
   const userResult = userStmt.run(spaceName);
+
+  // Clean up all capability rows for this space
+  deleteSpaceCapabilities(spaceName);
 
   invalidateSpaceCache(spaceName);
   logger.info(

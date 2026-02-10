@@ -7,10 +7,20 @@ import {
   assignGroupAsManager,
   removeGroupAsManager,
 } from '../services/space-manager.store.js';
+import {
+  getCapabilities,
+  getAllCapabilitiesForSpace,
+  setCapabilities,
+  deleteCapabilities,
+} from '../services/manager-capabilities.store.js';
 import { getGroupMembers } from '../services/editshare-api/groups.service.js';
 import { ValidationError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
-import type { IManageSpaceManagerRequest, ISpaceManagersResponse } from '../../../shared/types/roles.js';
+import type {
+  IManageSpaceManagerRequest,
+  ISpaceManagersResponse,
+  IUpdateCapabilitiesRequest,
+} from '../../../shared/types/roles.js';
 
 /** Extract :name param safely (Express v5 params can be string | string[]) */
 function getSpaceName(req: Request): string {
@@ -35,6 +45,7 @@ export async function listAll(_req: Request, res: Response): Promise<void> {
     bySpace.get(u.space_name)!.users.push({
       username: u.username,
       assignedAt: u.created_at,
+      capabilities: getCapabilities(u.space_name, u.username),
     });
   }
 
@@ -67,12 +78,18 @@ export async function listAll(_req: Request, res: Response): Promise<void> {
 export async function getSpaceManagersHandler(req: Request, res: Response): Promise<void> {
   const spaceName = getSpaceName(req);
   const { users, groups } = getSpaceManagers(spaceName);
+  const capsMap = getAllCapabilitiesForSpace(spaceName);
 
   const response: ISpaceManagersResponse = {
     spaceName,
     users: users.map((u) => ({
       username: u.username,
       assignedAt: u.created_at,
+      capabilities: capsMap.get(u.username) ?? {
+        canManageUsers: true,
+        canManageGroups: true,
+        canManageQuota: true,
+      },
     })),
     groups: [],
   };
@@ -143,6 +160,7 @@ export async function removeManager(req: Request, res: Response): Promise<void> 
 
   if (assigneeType === 'user') {
     removeUserAsManager(spaceName, assigneeName);
+    deleteCapabilities(spaceName, assigneeName);
     logger.info({ spaceName, username: assigneeName }, 'User removed as space manager');
   } else {
     removeGroupAsManager(spaceName, assigneeName);
@@ -150,4 +168,45 @@ export async function removeManager(req: Request, res: Response): Promise<void> 
   }
 
   res.json({ data: { spaceName, assigneeType, assigneeName, status: 'removed' } });
+}
+
+/** Extract :username param safely */
+function getUsername(req: Request): string {
+  const val = req.params.username;
+  return Array.isArray(val) ? val[0] : val;
+}
+
+/**
+ * PUT /api/v1/roles/spaces/:name/users/:username/capabilities
+ * Update capability flags for a specific user on a space. Admin-only.
+ */
+export async function updateCapabilities(req: Request, res: Response): Promise<void> {
+  const spaceName = getSpaceName(req);
+  const username = getUsername(req);
+  const body = req.body as IUpdateCapabilitiesRequest;
+
+  // Validate at least one field is provided
+  if (
+    body.canManageUsers === undefined &&
+    body.canManageGroups === undefined &&
+    body.canManageQuota === undefined &&
+    body.maxQuotaBytes === undefined
+  ) {
+    throw new ValidationError('At least one capability field must be provided');
+  }
+
+  // Validate maxQuotaBytes if provided
+  if (body.maxQuotaBytes !== undefined && body.maxQuotaBytes !== null) {
+    if (typeof body.maxQuotaBytes !== 'number' || body.maxQuotaBytes < 0) {
+      throw new ValidationError('maxQuotaBytes must be a non-negative number or null');
+    }
+  }
+
+  setCapabilities(spaceName, username, body);
+
+  const updated = getCapabilities(spaceName, username);
+
+  logger.info({ spaceName, username, capabilities: updated }, 'Manager capabilities updated');
+
+  res.json({ data: { spaceName, username, capabilities: updated } });
 }

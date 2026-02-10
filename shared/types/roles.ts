@@ -7,10 +7,25 @@ export interface ISpaceManagerAssignment {
   assignedBy?: string;
 }
 
+/** Per-space capability flags for a limited admin (space manager) */
+export interface ISpaceManagerCapabilities {
+  canManageUsers: boolean;
+  canManageGroups: boolean;
+  canManageQuota: boolean;
+  maxQuotaBytes?: number; // null/undefined = unlimited
+}
+
+/** Extended manager info with capabilities */
+export interface ISpaceManagerDetail {
+  username: string;
+  assignedAt: number;
+  capabilities: ISpaceManagerCapabilities;
+}
+
 /** Managers for a specific space */
 export interface ISpaceManagersResponse {
   spaceName: string;
-  users: { username: string; assignedAt: number }[];
+  users: ISpaceManagerDetail[];
   groups: { groupName: string; assignedAt: number; memberCount?: number }[];
 }
 
@@ -18,4 +33,12 @@ export interface ISpaceManagersResponse {
 export interface IManageSpaceManagerRequest {
   assigneeType: 'user' | 'group';
   assigneeName: string;
+}
+
+/** Request to update capabilities for a specific user on a space */
+export interface IUpdateCapabilitiesRequest {
+  canManageUsers?: boolean;
+  canManageGroups?: boolean;
+  canManageQuota?: boolean;
+  maxQuotaBytes?: number | null;
 }

@@ -16,4 +16,7 @@ router.post('/spaces/:name', asyncHandler(rolesController.assignManager));
 // Remove a user or group as space manager
 router.delete('/spaces/:name', asyncHandler(rolesController.removeManager));
 
+// Update capabilities for a specific user manager on a space
+router.put('/spaces/:name/users/:username/capabilities', asyncHandler(rolesController.updateCapabilities));
+
 export default router;

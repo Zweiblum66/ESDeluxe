@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useUsersStore } from '@/stores/users.store';
 import { useGroupsStore } from '@/stores/groups.store';
 import type { IPool, IConsumer } from '@shared/types';
@@ -17,6 +17,8 @@ interface Emits {
   (e: 'delete'): void;
   (e: 'add-above'): void;
   (e: 'add-below'): void;
+  (e: 'move-up'): void;
+  (e: 'move-down'): void;
   (e: 'remove-consumer', index: number): void;
   (e: 'add-consumer', consumers: IConsumer[]): void;
 }
@@ -34,17 +36,39 @@ const bandwidthLimitMiB = ref(
   props.pool.bandwidthLimit ? Math.round(props.pool.bandwidthLimit / 1048576) : 500,
 );
 
+// Collapse state
+const isCollapsed = ref(false);
+
 // Consumer dialog
 const showConsumerDialog = ref(false);
 const consumerType = ref<'user' | 'group' | 'address' | 'workstation'>('user');
 const consumerValue = ref('');
 const selectedConsumers = ref<string[]>([]);
 
+// Sync local state when pool prop changes (e.g. after reorder)
+watch(() => props.pool.name, (newName) => { poolName.value = newName; });
+watch(() => props.pool.bandwidthLimit, (newLimit) => {
+  bandwidthEnabled.value = newLimit !== null;
+  bandwidthLimitMiB.value = newLimit ? Math.round(newLimit / 1048576) : 500;
+});
+
 // Computed
 const usageMiB = computed(() => (props.usage ?? 0) / 1048576);
 const usagePercent = computed(() => {
   if (!props.pool.bandwidthLimit || !props.usage) return 0;
   return Math.min(100, (props.usage / props.pool.bandwidthLimit) * 100);
+});
+
+const collapsedSummary = computed(() => {
+  const parts: string[] = [];
+  if (props.pool.bandwidthLimit) {
+    parts.push(`${Math.round(props.pool.bandwidthLimit / 1048576)} MiB/s`);
+  } else {
+    parts.push('Unlimited');
+  }
+  const count = props.pool.consumers.length;
+  parts.push(`${count} consumer${count !== 1 ? 's' : ''}`);
+  return parts.join(' · ');
 });
 
 // Update pool when values change
@@ -171,118 +195,153 @@ function addConsumer() {
 <template>
   <v-card class="pool-card" elevation="1">
     <!-- Pool Header -->
-    <v-card-title class="pool-card__header">
+    <v-card-title class="pool-card__header" @click="isCollapsed = !isCollapsed">
+      <!-- Priority badge -->
+      <v-avatar size="28" color="primary" variant="tonal" class="pool-card__priority">
+        <span class="text-caption font-weight-bold">{{ poolIndex + 1 }}</span>
+      </v-avatar>
+
       <v-text-field
         v-model="poolName"
         variant="solo"
         density="compact"
         hide-details
         class="pool-card__name-field"
+        @click.stop
         @blur="emitUpdate"
         @keyup.enter="emitUpdate"
       />
-      <v-icon class="pool-card__drag-handle" size="small">mdi-drag-vertical</v-icon>
-    </v-card-title>
 
-    <v-card-text class="pool-card__content">
-      <!-- Bandwidth Limit Toggle -->
-      <div class="pool-card__limit-row">
-        <div class="pool-card__limit-label">
-          <v-switch
-            v-model="bandwidthEnabled"
-            color="success"
-            label="Limit bandwidth"
-            hide-details
-            density="compact"
-            @update:model-value="emitUpdate"
-          />
-        </div>
-        <div v-if="bandwidthEnabled" class="pool-card__limit-input">
-          <v-text-field
-            v-model.number="bandwidthLimitMiB"
-            type="number"
-            suffix="MiB/s"
-            variant="outlined"
-            density="compact"
-            hide-details
-            min="1"
-            @blur="emitUpdate"
-            @keyup.enter="emitUpdate"
-          />
-        </div>
-      </div>
+      <!-- Collapsed summary -->
+      <span v-if="isCollapsed" class="pool-card__summary text-caption text-medium-emphasis">
+        {{ collapsedSummary }}
+      </span>
 
-      <!-- Usage Display -->
-      <div v-if="usage !== undefined && bandwidthEnabled" class="pool-card__usage">
-        <div class="pool-card__usage-text">
-          <span class="text-caption">Usage: </span>
-          <span class="font-weight-bold">{{ usageMiB.toFixed(1) }} MiB/s</span>
-          <span v-if="pool.bandwidthLimit" class="text-caption text-medium-emphasis">
-            / {{ (pool.bandwidthLimit / 1048576).toFixed(0) }} MiB/s
-          </span>
-        </div>
-        <v-progress-linear
-          v-if="pool.bandwidthLimit"
-          :model-value="usagePercent"
-          :color="usagePercent > 90 ? 'error' : usagePercent > 70 ? 'warning' : 'success'"
-          height="6"
-          rounded
-          class="mt-1"
+      <!-- Move up/down buttons -->
+      <div class="pool-card__move-buttons" @click.stop>
+        <v-btn
+          icon="mdi-chevron-up"
+          size="x-small"
+          variant="text"
+          :disabled="isFirst"
+          @click="emit('move-up')"
+        />
+        <v-btn
+          icon="mdi-chevron-down"
+          size="x-small"
+          variant="text"
+          :disabled="isLast"
+          @click="emit('move-down')"
         />
       </div>
 
-      <!-- Consumers -->
-      <div class="pool-card__consumers">
-        <div class="pool-card__consumers-label">
-          <span class="text-caption text-medium-emphasis">Consumers</span>
-        </div>
-        <div class="pool-card__consumers-chips">
-          <v-chip
-            v-for="(consumer, idx) in pool.consumers"
-            :key="`${consumer.type}-${idx}`"
-            size="small"
-            closable
-            @click:close="emit('remove-consumer', idx)"
-          >
-            <v-icon :icon="getConsumerIcon(consumer.type)" start size="small" />
-            {{ getConsumerLabel(consumer) }}
-          </v-chip>
-          <v-btn
-            variant="outlined"
-            size="small"
-            prepend-icon="mdi-plus"
-            @click="openConsumerDialog"
-          >
-            Add consumer
-          </v-btn>
-        </div>
-      </div>
-    </v-card-text>
+      <!-- Collapse toggle -->
+      <v-btn
+        :icon="isCollapsed ? 'mdi-chevron-down' : 'mdi-chevron-up'"
+        size="x-small"
+        variant="text"
+        class="pool-card__collapse-btn"
+        @click.stop="isCollapsed = !isCollapsed"
+      />
+    </v-card-title>
 
-    <!-- Pool Actions -->
-    <v-card-actions class="pool-card__actions">
-      <v-btn
-        size="small"
-        variant="text"
-        :color="isFirst ? 'error' : 'secondary'"
-        @click="emit('add-above')"
-      >
-        Add pool above
-      </v-btn>
-      <v-btn size="small" variant="text" color="secondary" @click="emit('add-below')">
-        Add pool below
-      </v-btn>
-      <v-spacer />
-      <v-btn
-        size="small"
-        variant="text"
-        color="error"
-        prepend-icon="mdi-delete"
-        @click="emit('delete')"
-      >
-        Delete pool
-      </v-btn>
-    </v-card-actions>
+    <!-- Collapsible content -->
+    <div v-show="!isCollapsed" class="pool-card__collapsible">
+      <v-card-text class="pool-card__content">
+        <!-- Bandwidth Limit Toggle -->
+        <div class="pool-card__limit-row">
+          <div class="pool-card__limit-label">
+            <v-switch
+              v-model="bandwidthEnabled"
+              color="success"
+              label="Limit bandwidth"
+              hide-details
+              density="compact"
+              @update:model-value="emitUpdate"
+            />
+          </div>
+          <div v-if="bandwidthEnabled" class="pool-card__limit-input">
+            <v-text-field
+              v-model.number="bandwidthLimitMiB"
+              type="number"
+              suffix="MiB/s"
+              variant="outlined"
+              density="compact"
+              hide-details
+              min="1"
+              @blur="emitUpdate"
+              @keyup.enter="emitUpdate"
+            />
+          </div>
+        </div>
+
+        <!-- Usage Display -->
+        <div v-if="usage !== undefined && bandwidthEnabled" class="pool-card__usage">
+          <div class="pool-card__usage-text">
+            <span class="text-caption">Usage: </span>
+            <span class="font-weight-bold">{{ usageMiB.toFixed(1) }} MiB/s</span>
+            <span v-if="pool.bandwidthLimit" class="text-caption text-medium-emphasis">
+              / {{ (pool.bandwidthLimit / 1048576).toFixed(0) }} MiB/s
+            </span>
+          </div>
+          <v-progress-linear
+            v-if="pool.bandwidthLimit"
+            :model-value="usagePercent"
+            :color="usagePercent > 90 ? 'error' : usagePercent > 70 ? 'warning' : 'success'"
+            height="6"
+            rounded
+            class="mt-1"
+          />
+        </div>
+
+        <!-- Consumers -->
+        <div class="pool-card__consumers">
+          <div class="pool-card__consumers-label">
+            <span class="text-caption text-medium-emphasis">Consumers</span>
+          </div>
+          <div class="pool-card__consumers-chips">
+            <v-chip
+              v-for="(consumer, idx) in pool.consumers"
+              :key="`${consumer.type}-${idx}`"
+              size="small"
+              closable
+              @click:close="emit('remove-consumer', idx)"
+            >
+              <v-icon :icon="getConsumerIcon(consumer.type)" start size="small" />
+              {{ getConsumerLabel(consumer) }}
+            </v-chip>
+            <v-btn
+              variant="outlined"
+              size="small"
+              prepend-icon="mdi-plus"
+              @click="openConsumerDialog"
+            >
+              Add consumer
+            </v-btn>
+          </div>
+        </div>
+      </v-card-text>
+
+      <!-- Pool Actions -->
+      <v-card-actions class="pool-card__actions">
+        <v-btn size="small" variant="text" color="secondary" @click="emit('add-above')">
+          Add pool above
+        </v-btn>
+        <v-btn size="small" variant="text" color="secondary" @click="emit('add-below')">
+          Add pool below
+        </v-btn>
+        <v-spacer />
+        <v-btn
+          size="small"
+          variant="text"
+          color="error"
+          prepend-icon="mdi-delete"
+          @click="emit('delete')"
+        >
+          Delete pool
+        </v-btn>
+      </v-card-actions>
+    </div>
 
     <!-- Add Consumer Dialog -->
     <v-dialog v-model="showConsumerDialog" max-width="600">
@@ -378,21 +437,46 @@ function addConsumer() {
     gap: 8px;
     padding: 12px 16px;
     border-bottom: 1px solid rgba(55, 65, 81, 0.3);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  &__priority {
+    flex-shrink: 0;
   }
 
   &__name-field {
     flex: 1;
+    min-width: 120px;
     :deep(.v-field) {
       background-color: #1a1d23;
     }
   }
 
-  &__drag-handle {
-    cursor: grab;
-    opacity: 0.5;
-    &:active {
-      cursor: grabbing;
+  &__summary {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  &__move-buttons {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    margin: -4px 0;
+  }
+
+  &__collapse-btn {
+    flex-shrink: 0;
+    opacity: 0.6;
+    transition: opacity 150ms ease;
+
+    &:hover {
+      opacity: 1;
     }
+  }
+
+  &__collapsible {
+    // Smooth content appearance
   }
 
   &__content {
