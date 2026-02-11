@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { useSpacesStore } from '@/stores/spaces.store';
 import { useUsersStore } from '@/stores/users.store';
 import { useGroupsStore } from '@/stores/groups.store';
@@ -7,12 +8,20 @@ import PageHeader from '@/components/common/PageHeader.vue';
 import DataTable from '@/components/common/DataTable.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import InlineMultiSelect from '@/components/common/InlineMultiSelect.vue';
+import ContextMenu from '@/components/common/ContextMenu.vue';
+import type { ContextMenuItem } from '@/components/common/ContextMenu.vue';
+import { useResponsive } from '@/composables/useResponsive';
+import { useAuthStore } from '@/stores/auth.store';
 import type { InlineMultiSelectItem } from '@/components/common/InlineMultiSelect.vue';
 import type { ISpaceDetail, SpaceType } from '@shared/types';
 
+const responsive = useResponsive();
+
+const router = useRouter();
 const store = useSpacesStore();
 const usersStore = useUsersStore();
 const groupsStore = useGroupsStore();
+const authStore = useAuthStore();
 
 const columns = [
   { key: 'name', title: 'Name', sortable: true },
@@ -20,7 +29,7 @@ const columns = [
   { key: 'quota', title: 'Quota', sortable: true, width: '100px' },
   { key: 'used', title: 'Used', sortable: true, width: '100px' },
   { key: 'usedPercent', title: '%Used', sortable: true, width: '120px', align: 'end' as const },
-  { key: 'actions', title: '', width: '120px', sortable: false },
+  { key: 'actions', title: '', width: '160px', sortable: false },
 ];
 
 // --- Type filter ---
@@ -265,6 +274,45 @@ function formatBytes(bytes: unknown): string {
   return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+// --- Context menu ---
+const contextMenu = ref({ show: false, x: 0, y: 0, items: [] as ContextMenuItem[] });
+const contextSpaceName = ref('');
+
+function handleRowContextMenu(event: MouseEvent, item: Record<string, unknown>): void {
+  contextSpaceName.value = item.name as string;
+  const items: ContextMenuItem[] = [
+    { label: 'View Details', icon: 'mdi-eye', action: 'view' },
+    { label: 'Browse Files', icon: 'mdi-file-tree', action: 'browse' },
+    { label: 'Manage Access', icon: 'mdi-shield-key', action: 'access' },
+  ];
+  if (authStore.isAdmin) {
+    items.push({ label: 'Delete', icon: 'mdi-delete', action: 'delete', color: 'error', divider: true });
+  }
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    items,
+  };
+}
+
+function handleContextAction(action: string): void {
+  switch (action) {
+    case 'view':
+      openDetail({ name: contextSpaceName.value } as Record<string, unknown>);
+      break;
+    case 'browse':
+      router.push({ name: 'files-space', params: { spaceName: contextSpaceName.value } });
+      break;
+    case 'access':
+      router.push(`/access`);
+      break;
+    case 'delete':
+      openDeleteConfirm(contextSpaceName.value);
+      break;
+  }
+}
+
 // Load spaces on mount
 onMounted(() => {
   store.fetchSpaces();
@@ -287,6 +335,7 @@ onMounted(() => {
           class="mr-2"
         />
         <v-btn
+          v-if="authStore.isAdmin"
           color="primary"
           prepend-icon="mdi-plus"
           @click="showCreateDialog = true"
@@ -318,9 +367,10 @@ onMounted(() => {
       search-placeholder="Search spaces..."
       no-data-text="No media spaces found"
       @click:row="openDetail"
+      @contextmenu:row="handleRowContextMenu"
     >
       <!-- Bulk actions -->
-      <template #bulk-actions="{ count }">
+      <template v-if="authStore.isAdmin" #bulk-actions="{ count }">
         <v-btn
           size="small"
           variant="tonal"
@@ -370,6 +420,13 @@ onMounted(() => {
       <!-- Custom column: actions -->
       <template #item.actions="{ item }">
         <v-btn
+          icon="mdi-file-tree"
+          size="small"
+          variant="text"
+          @click.stop="router.push({ name: 'files-space', params: { spaceName: item.name as string } })"
+          title="Browse files"
+        />
+        <v-btn
           icon="mdi-eye"
           size="small"
           variant="text"
@@ -377,6 +434,7 @@ onMounted(() => {
           title="View space"
         />
         <v-btn
+          v-if="authStore.isAdmin"
           icon="mdi-delete"
           size="small"
           variant="text"
@@ -436,7 +494,7 @@ onMounted(() => {
     </v-dialog>
 
     <!-- Space Detail Dialog -->
-    <v-dialog v-model="showDetailDialog" max-width="800" scrollable>
+    <v-dialog v-model="showDetailDialog" max-width="800" scrollable :fullscreen="responsive.dialogFullscreen.value">
       <v-card v-if="detailSpace">
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-2">mdi-folder-network</v-icon>
@@ -461,6 +519,27 @@ onMounted(() => {
               </template>
             </v-list-item>
           </v-list>
+
+          <!-- Quick Actions -->
+          <div class="d-flex gap-2 mb-4">
+            <v-btn
+              variant="tonal"
+              color="primary"
+              size="small"
+              prepend-icon="mdi-file-tree"
+              @click="showDetailDialog = false; router.push({ name: 'files-space', params: { spaceName: detailSpace.name } })"
+            >
+              Browse Files
+            </v-btn>
+            <v-btn
+              variant="tonal"
+              size="small"
+              prepend-icon="mdi-swap-vertical-bold"
+              @click="showDetailDialog = false; router.push({ name: 'tiering', query: { space: detailSpace.name } })"
+            >
+              Tiering Rules
+            </v-btn>
+          </div>
 
           <!-- Users Section -->
           <div class="d-flex align-center mb-2">
@@ -621,6 +700,7 @@ onMounted(() => {
         </v-card-text>
         <v-card-actions>
           <v-btn
+            v-if="authStore.isAdmin"
             color="error"
             variant="tonal"
             prepend-icon="mdi-delete"
@@ -673,12 +753,35 @@ onMounted(() => {
       confirm-color="error"
       @confirm="handleBulkDelete"
     />
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-model="contextMenu.show"
+      :position="{ x: contextMenu.x, y: contextMenu.y }"
+      :items="contextMenu.items"
+      @action="handleContextAction"
+    />
   </div>
 </template>
 
 <style scoped lang="scss">
 .spaces-list-view {
   max-width: 1400px;
+
+  @include phone {
+    max-width: 100%;
+
+    // Hide Quota, Used, and Actions columns on phone (keep Name, Type, %Used)
+    // With select checkbox: col 1=checkbox, 2=name, 3=type, 4=quota, 5=used, 6=%used, 7=actions
+    :deep(thead th:nth-child(4)),
+    :deep(.v-data-table__tr td:nth-child(4)),
+    :deep(thead th:nth-child(5)),
+    :deep(.v-data-table__tr td:nth-child(5)),
+    :deep(thead th:nth-child(7)),
+    :deep(.v-data-table__tr td:nth-child(7)) {
+      display: none;
+    }
+  }
 }
 
 .chip-close-icon {

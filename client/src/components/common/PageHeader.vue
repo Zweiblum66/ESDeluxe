@@ -34,6 +34,12 @@ const props = withDefaults(defineProps<Props>(), {
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 24px;
+  gap: 12px;
+
+  @include phone {
+    flex-direction: column;
+    margin-bottom: 16px;
+  }
 
   &__left {
     display: flex;
@@ -46,6 +52,10 @@ const props = withDefaults(defineProps<Props>(), {
     font-weight: 600;
     color: #e5e7eb;
     margin: 0;
+
+    @include phone {
+      font-size: 18px;
+    }
   }
 
   &__count {
@@ -62,6 +72,11 @@ const props = withDefaults(defineProps<Props>(), {
     display: flex;
     align-items: center;
     gap: 8px;
+
+    @include phone {
+      width: 100%;
+      flex-wrap: wrap;
+    }
   }
 }
 </style>

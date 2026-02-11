@@ -3,6 +3,10 @@ import { logger } from './utils/logger.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 import { initEsApiClient, getEsApiClient } from './services/editshare-api/client.js';
 import { initLdapClient, getLdapClient } from './services/ldap/client.js';
+import { listUsers } from './services/editshare-api/users.service.js';
+import { startScheduler, stopScheduler } from './services/tiering-scheduler.service.js';
+import { startTrashScheduler, stopTrashScheduler } from './services/trash/trash-scheduler.service.js';
+import { remountAllSmbLocations, unmountAllSmbLocations } from './services/archive/smb-mount.service.js';
 import { createApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -60,6 +64,14 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'LDAP connection failed - server will start but LDAP features will be unavailable');
   }
 
+  // --- Remount SMB Archive Locations ---
+  logger.info('Remounting SMB archive locations...');
+  try {
+    await remountAllSmbLocations();
+  } catch (err) {
+    logger.warn({ err }, 'Some SMB archive locations failed to remount');
+  }
+
   // --- Start Express Server ---
   const app = createApp();
 
@@ -78,14 +90,35 @@ async function main(): Promise<void> {
     }
 
     logger.info('========================================');
+
+    // --- Start Tiering Scheduler ---
+    startScheduler();
+
+    // --- Start Trash Purge Scheduler ---
+    startTrashScheduler();
+
+    // --- Warm up user list cache in background ---
+    listUsers()
+      .then((users) => logger.info({ count: users.length }, 'User list cache warmed up'))
+      .catch((err) => logger.warn({ err }, 'User list cache warm-up failed'));
   });
 
   // --- Graceful Shutdown ---
   const shutdown = (signal: string) => {
     logger.info({ signal }, `Received ${signal}, shutting down gracefully...`);
 
-    server.close(() => {
+    server.close(async () => {
       logger.info('HTTP server closed');
+
+      stopScheduler();
+      stopTrashScheduler();
+
+      // Unmount SMB archive shares
+      try {
+        await unmountAllSmbLocations();
+      } catch {
+        // Best effort — don't block shutdown
+      }
 
       try {
         const ldap = getLdapClient();

@@ -2,15 +2,19 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useUiStore } from '@/stores/ui.store';
+import { useAuthStore } from '@/stores/auth.store';
 
 const route = useRoute();
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 
 interface NavItem {
   title: string;
   icon: string;
   to: string;
   routeName: string;
+  adminOnly?: boolean;
+  spaceManagerVisible?: boolean;
 }
 
 interface SectionNav {
@@ -19,24 +23,35 @@ interface SectionNav {
 
 const sectionNavItems: SectionNav = {
   management: [
-    { title: 'Users', icon: 'mdi-account-multiple', to: '/users', routeName: 'users' },
-    { title: 'Groups', icon: 'mdi-account-group', to: '/groups', routeName: 'groups' },
-    { title: 'Media Spaces', icon: 'mdi-folder-multiple', to: '/spaces', routeName: 'spaces' },
-    { title: 'Access', icon: 'mdi-shield-key', to: '/access', routeName: 'access' },
-    { title: 'QoS', icon: 'mdi-speedometer', to: '/qos', routeName: 'qos' },
+    { title: 'Users', icon: 'mdi-account-multiple', to: '/users', routeName: 'users', adminOnly: true },
+    { title: 'Groups', icon: 'mdi-account-group', to: '/groups', routeName: 'groups', adminOnly: true },
+    { title: 'Media Spaces', icon: 'mdi-folder-multiple', to: '/spaces', routeName: 'spaces', adminOnly: true, spaceManagerVisible: true },
+    { title: 'File Browser', icon: 'mdi-file-tree', to: '/files', routeName: 'files' },
+    { title: 'Tiering', icon: 'mdi-swap-vertical-bold', to: '/tiering', routeName: 'tiering', adminOnly: true },
+    { title: 'Tiering Browser', icon: 'mdi-layers-triple', to: '/tiering-browser', routeName: 'tiering-browser' },
+    { title: 'Archive', icon: 'mdi-archive', to: '/archive', routeName: 'archive' },
+    { title: 'Access', icon: 'mdi-shield-key', to: '/access', routeName: 'access', adminOnly: true, spaceManagerVisible: true },
+    { title: 'Limited Admin', icon: 'mdi-shield-account', to: '/roles', routeName: 'roles', adminOnly: true },
+    { title: 'QoS', icon: 'mdi-speedometer', to: '/qos', routeName: 'qos', adminOnly: true },
     { title: 'Trash', icon: 'mdi-delete', to: '/trash', routeName: 'trash' },
   ],
   synchronization: [
-    { title: 'Sync Status', icon: 'mdi-sync', to: '/sync', routeName: 'sync' },
+    { title: 'Sync Status', icon: 'mdi-sync', to: '/sync', routeName: 'sync', adminOnly: true },
   ],
   system: [
     { title: 'Dashboard', icon: 'mdi-monitor-dashboard', to: '/dashboard', routeName: 'dashboard' },
-    { title: 'Settings', icon: 'mdi-cog', to: '/settings', routeName: 'settings' },
+    { title: 'Settings', icon: 'mdi-cog', to: '/settings', routeName: 'settings', adminOnly: true },
   ],
 };
 
 const currentNavItems = computed(() => {
-  return sectionNavItems[uiStore.activeSection] || [];
+  const items = sectionNavItems[uiStore.activeSection] || [];
+  if (authStore.isAdmin) return items;
+  return items.filter((item) => {
+    if (!item.adminOnly) return true;
+    if (item.spaceManagerVisible && authStore.isSomeSpaceManager) return true;
+    return false;
+  });
 });
 
 const sectionTitle = computed(() => {
@@ -49,7 +64,10 @@ const sectionTitle = computed(() => {
 });
 
 function isActive(item: NavItem): boolean {
-  return route.name === item.routeName;
+  const name = route.name as string | undefined;
+  if (!name) return false;
+  // Support prefix matching (e.g., 'files' matches 'files', 'files-space', 'files-path')
+  return name === item.routeName || name.startsWith(item.routeName + '-');
 }
 </script>
 

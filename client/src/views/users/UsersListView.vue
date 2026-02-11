@@ -4,7 +4,12 @@ import { useUsersStore } from '@/stores/users.store';
 import PageHeader from '@/components/common/PageHeader.vue';
 import DataTable from '@/components/common/DataTable.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
+import ContextMenu from '@/components/common/ContextMenu.vue';
+import type { ContextMenuItem } from '@/components/common/ContextMenu.vue';
+import { useResponsive } from '@/composables/useResponsive';
 import type { IUser, IUserDetail } from '@shared/types';
+
+const responsive = useResponsive();
 
 const store = useUsersStore();
 
@@ -101,6 +106,39 @@ async function handleBulkDelete(): Promise<void> {
   selectedUsers.value = [];
 }
 
+// --- Context menu ---
+const contextMenu = ref({ show: false, x: 0, y: 0, items: [] as ContextMenuItem[] });
+const contextUsername = ref('');
+
+function handleRowContextMenu(event: MouseEvent, item: Record<string, unknown>): void {
+  contextUsername.value = item.username as string;
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    items: [
+      { label: 'View Details', icon: 'mdi-eye', action: 'view' },
+      { label: 'Change Password', icon: 'mdi-key', action: 'password' },
+      { label: 'Delete', icon: 'mdi-delete', action: 'delete', color: 'error', divider: true },
+    ],
+  };
+}
+
+function handleContextAction(action: string): void {
+  const item = { username: contextUsername.value } as Record<string, unknown>;
+  switch (action) {
+    case 'view':
+      openDetail(item);
+      break;
+    case 'password':
+      openPasswordDialog(contextUsername.value);
+      break;
+    case 'delete':
+      openDeleteConfirm(contextUsername.value);
+      break;
+  }
+}
+
 // Load users on mount
 onMounted(() => {
   store.fetchUsers();
@@ -143,6 +181,7 @@ onMounted(() => {
       search-placeholder="Search users..."
       no-data-text="No users found"
       @click:row="openDetail"
+      @contextmenu:row="handleRowContextMenu"
     >
       <!-- Bulk actions -->
       <template #bulk-actions="{ count }">
@@ -239,7 +278,7 @@ onMounted(() => {
     </v-dialog>
 
     <!-- User Detail Dialog -->
-    <v-dialog v-model="showDetailDialog" max-width="640">
+    <v-dialog v-model="showDetailDialog" max-width="640" :fullscreen="responsive.dialogFullscreen.value">
       <v-card v-if="detailUser">
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-2">mdi-account</v-icon>
@@ -385,11 +424,31 @@ onMounted(() => {
       confirm-color="error"
       @confirm="handleBulkDelete"
     />
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-model="contextMenu.show"
+      :position="{ x: contextMenu.x, y: contextMenu.y }"
+      :items="contextMenu.items"
+      @action="handleContextAction"
+    />
   </div>
 </template>
 
 <style scoped lang="scss">
 .users-list-view {
   max-width: 1200px;
+
+  @include phone {
+    max-width: 100%;
+
+    // Hide Maintenance and Actions columns on phone (columns 4 and 5, after select checkbox)
+    :deep(thead th:nth-child(4)),
+    :deep(.v-data-table__tr td:nth-child(4)),
+    :deep(thead th:nth-child(5)),
+    :deep(.v-data-table__tr td:nth-child(5)) {
+      display: none;
+    }
+  }
 }
 </style>

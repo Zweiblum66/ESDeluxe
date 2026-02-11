@@ -7,8 +7,13 @@ import PageHeader from '@/components/common/PageHeader.vue';
 import DataTable from '@/components/common/DataTable.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import InlineMultiSelect from '@/components/common/InlineMultiSelect.vue';
+import ContextMenu from '@/components/common/ContextMenu.vue';
+import type { ContextMenuItem } from '@/components/common/ContextMenu.vue';
+import { useResponsive } from '@/composables/useResponsive';
 import type { InlineMultiSelectItem } from '@/components/common/InlineMultiSelect.vue';
 import type { IGroupDetail } from '@shared/types';
+
+const responsive = useResponsive();
 
 const store = useGroupsStore();
 const usersStore = useUsersStore();
@@ -222,6 +227,34 @@ async function handleBulkDelete(): Promise<void> {
   selectedGroups.value = [];
 }
 
+// --- Context menu ---
+const contextMenu = ref({ show: false, x: 0, y: 0, items: [] as ContextMenuItem[] });
+const contextGroupName = ref('');
+
+function handleRowContextMenu(event: MouseEvent, item: Record<string, unknown>): void {
+  contextGroupName.value = item.name as string;
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    items: [
+      { label: 'View Details', icon: 'mdi-eye', action: 'view' },
+      { label: 'Delete', icon: 'mdi-delete', action: 'delete', color: 'error', divider: true },
+    ],
+  };
+}
+
+function handleContextAction(action: string): void {
+  switch (action) {
+    case 'view':
+      openDetail({ name: contextGroupName.value } as Record<string, unknown>);
+      break;
+    case 'delete':
+      openDeleteConfirm(contextGroupName.value);
+      break;
+  }
+}
+
 // Load groups on mount
 onMounted(() => {
   store.fetchGroups();
@@ -264,6 +297,7 @@ onMounted(() => {
       search-placeholder="Search groups..."
       no-data-text="No groups found"
       @click:row="openDetail"
+      @contextmenu:row="handleRowContextMenu"
     >
       <!-- Bulk actions -->
       <template #bulk-actions="{ count }">
@@ -336,7 +370,7 @@ onMounted(() => {
     </v-dialog>
 
     <!-- Group Detail Dialog -->
-    <v-dialog v-model="showDetailDialog" max-width="700" scrollable>
+    <v-dialog v-model="showDetailDialog" max-width="700" scrollable :fullscreen="responsive.dialogFullscreen.value">
       <v-card v-if="detailGroup">
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-2">mdi-account-group</v-icon>
@@ -532,12 +566,30 @@ onMounted(() => {
       confirm-color="error"
       @confirm="handleBulkDelete"
     />
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-model="contextMenu.show"
+      :position="{ x: contextMenu.x, y: contextMenu.y }"
+      :items="contextMenu.items"
+      @action="handleContextAction"
+    />
   </div>
 </template>
 
 <style scoped lang="scss">
 .groups-list-view {
   max-width: 1200px;
+
+  @include phone {
+    max-width: 100%;
+
+    // Hide Actions column on phone (last column after select checkbox)
+    :deep(thead th:nth-child(4)),
+    :deep(.v-data-table__tr td:nth-child(4)) {
+      display: none;
+    }
+  }
 }
 
 .chip-close-icon {

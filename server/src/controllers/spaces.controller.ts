@@ -4,6 +4,9 @@ import { logger } from '../utils/logger.js';
 import { isSystemUser } from '../services/ldap/constants.js';
 import * as esSpaces from '../services/editshare-api/spaces.service.js';
 import * as esGroups from '../services/editshare-api/groups.service.js';
+import { getUserSpaces } from '../services/editshare-api/users.service.js';
+import { getUserManagedSpaces, removeAllManagersForSpace } from '../services/space-manager.store.js';
+import { getCapabilities } from '../services/manager-capabilities.store.js';
 import { setGroupAccessType, removeGroupAccessType } from '../services/group-access.store.js';
 import {
   setUserPermissionOverride,
@@ -34,10 +37,37 @@ function getGroupName(req: Request): string {
 
 /**
  * GET /api/v1/spaces
- * Returns all media spaces with quota/usage info.
+ * Returns media spaces with quota/usage info.
+ * Admins see all spaces; regular users see only their assigned spaces.
  */
-export async function listSpaces(_req: Request, res: Response): Promise<void> {
+export async function listSpaces(req: Request, res: Response): Promise<void> {
   const spaces = await esSpaces.listSpaces();
+
+  // Admin sees all spaces
+  if (req.user?.isAdmin) {
+    res.json({ data: spaces });
+    return;
+  }
+
+  // Non-admin: filter to user's assigned + managed spaces
+  if (req.user) {
+    try {
+      const [userSpaces, managedSpaces] = await Promise.all([
+        getUserSpaces(req.user.username),
+        getUserManagedSpaces(req.user.username),
+      ]);
+      const accessibleNames = new Set([
+        ...userSpaces.map((s) => s.spaceName),
+        ...managedSpaces,
+      ]);
+      const filtered = spaces.filter((s) => accessibleNames.has(s.name));
+      res.json({ data: filtered });
+    } catch (err) {
+      logger.warn({ err, username: req.user.username }, 'Failed to filter spaces by user access');
+      res.json({ data: [] });
+    }
+    return;
+  }
 
   res.json({ data: spaces });
 }
@@ -104,10 +134,24 @@ export async function createSpace(req: Request, res: Response): Promise<void> {
 
 /**
  * PUT /api/v1/spaces/:name
- * Placeholder — ES API doesn't support direct space updates easily.
+ * Update space properties (e.g., quota).
+ * Space managers with manage_quota capability can change quota,
+ * subject to maxQuotaBytes limit if configured.
  */
 export async function updateSpace(req: Request, res: Response): Promise<void> {
   const name = getSpaceName(req);
+  const { quota } = req.body;
+
+  // Enforce quota limit for non-admin space managers
+  if (quota !== undefined && req.user && !req.user.isAdmin) {
+    const caps = getCapabilities(name, req.user.username);
+    if (caps.maxQuotaBytes != null && quota > caps.maxQuotaBytes) {
+      const limitGB = Math.round(caps.maxQuotaBytes / (1024 * 1024 * 1024));
+      throw new ValidationError(
+        `Quota exceeds your limit of ${limitGB} GB. Contact an administrator to increase it.`,
+      );
+    }
+  }
 
   // Currently the ES Storage API doesn't have a direct PATCH/PUT for space properties.
   // This could be implemented later if the API supports it.
@@ -122,8 +166,9 @@ export async function deleteSpace(req: Request, res: Response): Promise<void> {
 
   await esSpaces.deleteSpace(name);
 
-  // Clean up permission overrides for this space
+  // Clean up permission overrides and space manager assignments
   removeSpacePermissionOverrides(name);
+  removeAllManagersForSpace(name);
 
   res.json({ data: { name, message: 'Space deleted successfully' } });
 }

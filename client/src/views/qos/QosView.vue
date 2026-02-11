@@ -163,10 +163,17 @@ function getPoolUsage(poolName: string): number {
   return qosStore.getPoolUsage(poolName);
 }
 
-// Drag and drop (simple implementation - can be enhanced with vuedraggable)
-async function onPoolsReordered(newOrder: IPool[]) {
+// Move pool up or down by swapping with neighbor
+async function movePool(index: number, direction: 'up' | 'down') {
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= pools.value.length) return;
+
   try {
-    await qosStore.reorderPools(newOrder);
+    const updatedPools = [...pools.value];
+    const temp = updatedPools[index];
+    updatedPools[index] = updatedPools[targetIndex];
+    updatedPools[targetIndex] = temp;
+    await qosStore.reorderPools(updatedPools);
     showSuccess('Pool order updated');
   } catch (err) {
     showError('Failed to reorder pools');
@@ -250,6 +257,8 @@ async function onPoolsReordered(newOrder: IPool[]) {
           @delete="deletePool(index)"
           @add-above="addPool('above', index)"
           @add-below="addPool('below', index)"
+          @move-up="movePool(index, 'up')"
+          @move-down="movePool(index, 'down')"
           @remove-consumer="(consumerIndex) => removeConsumer(index, consumerIndex)"
           @add-consumer="(consumers) => addConsumer(index, consumers)"
         />
@@ -322,11 +331,21 @@ async function onPoolsReordered(newOrder: IPool[]) {
   max-width: 1000px;
   position: relative;
 
+  @include phone {
+    max-width: 100%;
+  }
+
   &__header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     margin-bottom: 24px;
+    gap: 12px;
+
+    @include phone {
+      flex-direction: column;
+      margin-bottom: 16px;
+    }
   }
 
   &__title {
@@ -334,6 +353,10 @@ async function onPoolsReordered(newOrder: IPool[]) {
     font-weight: 600;
     color: #e5e7eb;
     margin: 0;
+
+    @include phone {
+      font-size: 18px;
+    }
   }
 
   &__subtitle {
@@ -345,6 +368,10 @@ async function onPoolsReordered(newOrder: IPool[]) {
   &__actions {
     display: flex;
     gap: 8px;
+
+    @include phone {
+      flex-wrap: wrap;
+    }
   }
 
   &__toggle-card {
@@ -378,6 +405,12 @@ async function onPoolsReordered(newOrder: IPool[]) {
     display: flex;
     align-items: center;
     justify-content: space-between;
+
+    @include phone {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
   }
 
   &__limit-label {
@@ -386,6 +419,10 @@ async function onPoolsReordered(newOrder: IPool[]) {
 
   &__limit-input {
     width: 180px;
+
+    @include phone {
+      width: 100%;
+    }
   }
 }
 </style>

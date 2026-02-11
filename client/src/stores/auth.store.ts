@@ -6,6 +6,7 @@ import type {
   ILoginRequest,
   ILoginResponse,
   ICurrentUser,
+  IUserSpacePermission,
   AuthBackendType,
   IAuthBackendsResponse,
 } from '@shared/types';
@@ -24,6 +25,8 @@ export const useAuthStore = defineStore('auth', () => {
     })()
   );
   const backends = ref<AuthBackendType[]>([]);
+  const spaces = ref<IUserSpacePermission[]>([]);
+  const managedSpaces = ref<string[]>([]);
   const isLoading = ref(false);
   const loginError = ref<string | null>(null);
 
@@ -32,6 +35,28 @@ export const useAuthStore = defineStore('auth', () => {
   const hasAdBackend = computed(() => backends.value.includes('AD'));
   const username = computed(() => user.value?.username ?? '');
   const isAdmin = computed(() => user.value?.isAdmin ?? false);
+  const isSomeSpaceManager = computed(() => managedSpaces.value.length > 0);
+  const accessibleSpaceNames = computed(() => spaces.value.map((s) => s.spaceName));
+
+  /** Check if the user has any access (read or write) to a space */
+  function canReadSpace(spaceName: string): boolean {
+    if (isAdmin.value) return true;
+    if (managedSpaces.value.includes(spaceName)) return true;
+    return spaces.value.some((s) => s.spaceName === spaceName);
+  }
+
+  /** Check if the user has write access to a space */
+  function canWriteSpace(spaceName: string): boolean {
+    if (isAdmin.value) return true;
+    if (managedSpaces.value.includes(spaceName)) return true;
+    return spaces.value.some((s) => s.spaceName === spaceName && s.accessType === 'readwrite');
+  }
+
+  /** Check if the user can manage a space (admin or space manager) */
+  function canManageSpace(spaceName: string): boolean {
+    if (isAdmin.value) return true;
+    return managedSpaces.value.includes(spaceName);
+  }
 
   // --- Actions ---
 
@@ -51,13 +76,16 @@ export const useAuthStore = defineStore('auth', () => {
       token.value = data.token;
       user.value = data.user;
       backends.value = data.backends;
+      spaces.value = data.user.spaces ?? [];
+      managedSpaces.value = data.user.managedSpaces ?? [];
 
       localStorage.setItem('es_token', data.token);
       localStorage.setItem('es_user', JSON.stringify(data.user));
 
-      // Redirect to intended page or default
+      // Redirect to intended page or default (admin → /users, user → /files)
       const redirect = router.currentRoute.value.query.redirect as string;
-      await router.push(redirect || '/users');
+      const defaultRoute = data.user.isAdmin ? '/users' : '/files';
+      await router.push(redirect || defaultRoute);
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } };
       loginError.value = err.response?.data?.message || 'Login failed. Please check your credentials.';
@@ -74,6 +102,8 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null;
     user.value = null;
     backends.value = [];
+    spaces.value = [];
+    managedSpaces.value = [];
 
     localStorage.removeItem('es_token');
     localStorage.removeItem('es_user');
@@ -98,10 +128,14 @@ export const useAuthStore = defineStore('auth', () => {
       token.value = storedToken;
       const response = await api.get<{ data: ICurrentUser }>('/api/v1/auth/me');
       user.value = response.data.data;
+      spaces.value = response.data.data.spaces ?? [];
+      managedSpaces.value = response.data.data.managedSpaces ?? [];
       localStorage.setItem('es_user', JSON.stringify(response.data.data));
     } catch {
       token.value = null;
       user.value = null;
+      spaces.value = [];
+      managedSpaces.value = [];
       localStorage.removeItem('es_token');
       localStorage.removeItem('es_user');
     } finally {
@@ -126,6 +160,8 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     user,
     backends,
+    spaces,
+    managedSpaces,
     isLoading,
     loginError,
     // Getters
@@ -133,6 +169,12 @@ export const useAuthStore = defineStore('auth', () => {
     hasAdBackend,
     username,
     isAdmin,
+    isSomeSpaceManager,
+    accessibleSpaceNames,
+    // Methods
+    canReadSpace,
+    canWriteSpace,
+    canManageSpace,
     // Actions
     login,
     logout,

@@ -37,6 +37,12 @@ export class AuthenticationError extends AppError {
   }
 }
 
+export class ForbiddenError extends AppError {
+  constructor(message = 'Access denied') {
+    super(message, 403, 'FORBIDDEN');
+  }
+}
+
 export class ApiError extends AppError {
   constructor(message: string, statusCode = 502, details?: unknown) {
     super(message, statusCode, 'API_ERROR', details);
@@ -46,5 +52,11 @@ export class ApiError extends AppError {
 export class LdapError extends AppError {
   constructor(message: string, details?: unknown) {
     super(message, 502, 'LDAP_ERROR', details);
+  }
+}
+
+export class EfsCliError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super(message, 500, 'EFS_CLI_ERROR', details);
   }
 }

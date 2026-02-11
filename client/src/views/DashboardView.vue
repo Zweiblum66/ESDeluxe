@@ -169,6 +169,11 @@ function statusLabel(ok: boolean): string {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
+
+    @include phone {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
   }
 
   &__card {

@@ -80,3 +80,16 @@ a {
 .bg-surface-variant {
   background-color: $es-surface-variant !important;
 }
+
+// Responsive utility classes
+.hide-on-phone {
+  @include phone { display: none !important; }
+}
+
+.hide-on-tablet-down {
+  @include tablet-down { display: none !important; }
+}
+
+.show-on-tablet-down-only {
+  @include desktop-up { display: none !important; }
+}

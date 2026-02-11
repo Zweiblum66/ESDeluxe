@@ -35,6 +35,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'click:row': [item: Record<string, unknown>];
+  'contextmenu:row': [event: MouseEvent, item: Record<string, unknown>];
   'update:selected': [value: string[]];
 }>();
 
@@ -43,6 +44,20 @@ function handleRowClick(event: Event, row: { item: Record<string, unknown> }) {
   const target = event.target as HTMLElement;
   if (target.closest('.v-selection-control, .v-checkbox, .v-data-table__td--select-row')) return;
   emit('click:row', row.item);
+}
+
+function handleContextMenu(event: MouseEvent): void {
+  const row = (event.target as HTMLElement).closest('.v-data-table__tr');
+  if (!row) return;
+  event.preventDefault();
+  const tbody = row.parentElement;
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('.v-data-table__tr'));
+  const index = rows.indexOf(row as Element);
+  const item = filteredItems.value[index];
+  if (item) {
+    emit('contextmenu:row', event, item);
+  }
 }
 
 const search = ref('');
@@ -137,6 +152,7 @@ const filteredItems = computed(() => {
       hover
       class="data-table-wrapper__table"
       @click:row="handleRowClick"
+      @contextmenu="handleContextMenu"
     >
       <!-- Pass through all slots -->
       <template v-for="(_, name) in $slots" :key="name" #[name]="slotData">
@@ -153,10 +169,20 @@ const filteredItems = computed(() => {
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
+
+    @include phone {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
   }
 
   &__search {
     max-width: 320px;
+
+    @include phone {
+      max-width: 100%;
+    }
   }
 
   &__bulk-bar {
@@ -167,12 +193,23 @@ const filteredItems = computed(() => {
     border-radius: 8px;
     background: rgba(59, 130, 246, 0.1);
     border: 1px solid rgba(59, 130, 246, 0.2);
+
+    @include phone {
+      padding: 6px 12px;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
   }
 
   &__table {
     background-color: transparent !important;
     border-radius: 8px;
     overflow: hidden;
+
+    @include phone {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
   }
 }
 
