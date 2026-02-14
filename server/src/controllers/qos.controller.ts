@@ -1,6 +1,10 @@
 import type { Request, Response } from 'express';
-import { ValidationError } from '../utils/errors.js';
+import { ValidationError, NotFoundError } from '../utils/errors.js';
 import * as qosService from '../services/editshare-api/qos.service.js';
+import * as historyStore from '../services/qos-history.store.js';
+import * as profilesStore from '../services/qos-profiles.store.js';
+import * as alertsStore from '../services/qos-alerts.store.js';
+import { getQosSchedulerStatus } from '../services/qos-scheduler.service.js';
 
 /** Extract :storageNodeGroup param safely (Express v5 params can be string | string[]) */
 function getStorageNodeGroup(req: Request): string {
@@ -100,4 +104,282 @@ export async function getClientPools(req: Request, res: Response): Promise<void>
 
   const clientPools = await qosService.getClientPools(params);
   res.json({ data: clientPools });
+}
+
+// ──────────────────────────────────────────────
+// History
+// ──────────────────────────────────────────────
+
+/**
+ * GET /api/v1/qos/history
+ * Query params: storageNodeGroup, poolName, from (unix), to (unix)
+ */
+export async function getHistory(req: Request, res: Response): Promise<void> {
+  const { storageNodeGroup, poolName, from, to } = req.query;
+
+  if (!from || !to) {
+    throw new ValidationError('from and to query parameters are required (unix timestamps)');
+  }
+
+  const fromTs = Number(from);
+  const toTs = Number(to);
+
+  if (isNaN(fromTs) || isNaN(toTs)) {
+    throw new ValidationError('from and to must be valid unix timestamps');
+  }
+
+  const records = historyStore.getHistory({
+    storageNodeGroup: typeof storageNodeGroup === 'string' ? storageNodeGroup : undefined,
+    poolName: typeof poolName === 'string' ? poolName : undefined,
+    from: fromTs,
+    to: toTs,
+  });
+
+  res.json({ data: records });
+}
+
+/**
+ * GET /api/v1/qos/scheduler-status
+ * Returns the QoS scheduler status
+ */
+export async function getSchedulerStatus(_req: Request, res: Response): Promise<void> {
+  const status = getQosSchedulerStatus();
+  res.json({ data: status });
+}
+
+// ──────────────────────────────────────────────
+// Profiles
+// ──────────────────────────────────────────────
+
+/** GET /api/v1/qos/profiles */
+export async function listProfiles(_req: Request, res: Response): Promise<void> {
+  const profiles = profilesStore.listProfiles();
+  res.json({ data: profiles });
+}
+
+/** GET /api/v1/qos/profiles/:id */
+export async function getProfile(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  const profile = profilesStore.getProfile(id);
+  if (!profile) throw new NotFoundError('QoS profile', String(id));
+  res.json({ data: profile });
+}
+
+/** POST /api/v1/qos/profiles */
+export async function createProfile(req: Request, res: Response): Promise<void> {
+  const { name, storageNodeGroup, config } = req.body;
+
+  if (!name || typeof name !== 'string') {
+    throw new ValidationError('Profile name is required');
+  }
+  if (!storageNodeGroup || typeof storageNodeGroup !== 'string') {
+    throw new ValidationError('storageNodeGroup is required');
+  }
+  if (!config || typeof config !== 'object') {
+    throw new ValidationError('config object is required');
+  }
+
+  const profile = profilesStore.createProfile(name.trim(), storageNodeGroup, config);
+  res.status(201).json({ data: profile });
+}
+
+/**
+ * POST /api/v1/qos/profiles/from-current
+ * Save the current live QoS config as a named profile.
+ * Body: { name, storageNodeGroup }
+ */
+export async function createProfileFromCurrent(req: Request, res: Response): Promise<void> {
+  const { name, storageNodeGroup } = req.body;
+
+  if (!name || typeof name !== 'string') {
+    throw new ValidationError('Profile name is required');
+  }
+  if (!storageNodeGroup || typeof storageNodeGroup !== 'string') {
+    throw new ValidationError('storageNodeGroup is required');
+  }
+
+  // Fetch the current live config
+  const configs = await qosService.getQosConfig();
+  const currentConfig = configs.find((c) => c.storageNodeGroup === storageNodeGroup);
+  if (!currentConfig) {
+    throw new NotFoundError('QoS config for storage node group', storageNodeGroup);
+  }
+
+  const { storageNodeGroup: _sng, ...configWithoutSng } = currentConfig;
+  const profile = profilesStore.createProfile(name.trim(), storageNodeGroup, configWithoutSng);
+  res.status(201).json({ data: profile });
+}
+
+/** PUT /api/v1/qos/profiles/:id */
+export async function updateProfile(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  const { name, config } = req.body;
+
+  const updated = profilesStore.updateProfile(id, { name, config });
+  if (!updated) throw new NotFoundError('QoS profile', String(id));
+
+  res.json({ data: updated });
+}
+
+/** DELETE /api/v1/qos/profiles/:id */
+export async function deleteProfile(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  const deleted = profilesStore.deleteProfile(id);
+  if (!deleted) throw new NotFoundError('QoS profile', String(id));
+
+  res.json({ data: { id, message: 'Profile deleted' } });
+}
+
+// ──────────────────────────────────────────────
+// Schedules
+// ──────────────────────────────────────────────
+
+/** GET /api/v1/qos/schedules */
+export async function listSchedules(req: Request, res: Response): Promise<void> {
+  const profileId = req.query.profileId ? Number(req.query.profileId) : undefined;
+  const schedules = profilesStore.listSchedules(profileId);
+  res.json({ data: schedules });
+}
+
+/** POST /api/v1/qos/schedules */
+export async function createSchedule(req: Request, res: Response): Promise<void> {
+  const { profileId, cronExpression, enabled } = req.body;
+
+  if (!profileId || typeof profileId !== 'number') {
+    throw new ValidationError('profileId is required');
+  }
+  if (!cronExpression || typeof cronExpression !== 'string') {
+    throw new ValidationError('cronExpression is required');
+  }
+
+  // Validate profile exists
+  const profile = profilesStore.getProfile(profileId);
+  if (!profile) throw new NotFoundError('QoS profile', String(profileId));
+
+  // Basic cron format validation (5 fields)
+  const fields = cronExpression.trim().split(/\s+/);
+  if (fields.length !== 5) {
+    throw new ValidationError('cronExpression must be a 5-field cron expression (minute hour day month weekday)');
+  }
+
+  const schedule = profilesStore.createSchedule(profileId, cronExpression.trim(), enabled !== false);
+  res.status(201).json({ data: schedule });
+}
+
+/** PUT /api/v1/qos/schedules/:id */
+export async function updateSchedule(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  const { cronExpression, enabled } = req.body;
+
+  const updated = profilesStore.updateSchedule(id, { cronExpression, enabled });
+  if (!updated) throw new NotFoundError('QoS schedule', String(id));
+
+  res.json({ data: updated });
+}
+
+/** DELETE /api/v1/qos/schedules/:id */
+export async function deleteSchedule(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  const deleted = profilesStore.deleteSchedule(id);
+  if (!deleted) throw new NotFoundError('QoS schedule', String(id));
+
+  res.json({ data: { id, message: 'Schedule deleted' } });
+}
+
+// ──────────────────────────────────────────────
+// Alert Thresholds
+// ──────────────────────────────────────────────
+
+/** GET /api/v1/qos/alerts/thresholds */
+export async function listAlertThresholds(req: Request, res: Response): Promise<void> {
+  const storageNodeGroup = typeof req.query.storageNodeGroup === 'string'
+    ? req.query.storageNodeGroup
+    : undefined;
+  const thresholds = alertsStore.listThresholds(storageNodeGroup);
+  res.json({ data: thresholds });
+}
+
+/** POST /api/v1/qos/alerts/thresholds */
+export async function createAlertThreshold(req: Request, res: Response): Promise<void> {
+  const { storageNodeGroup, poolName, thresholdBytesPerSec, direction, cooldownMinutes } = req.body;
+
+  if (!storageNodeGroup || typeof storageNodeGroup !== 'string') {
+    throw new ValidationError('storageNodeGroup is required');
+  }
+  if (typeof thresholdBytesPerSec !== 'number' || thresholdBytesPerSec <= 0) {
+    throw new ValidationError('thresholdBytesPerSec must be a positive number');
+  }
+  if (direction && direction !== 'above' && direction !== 'below') {
+    throw new ValidationError('direction must be "above" or "below"');
+  }
+
+  const threshold = alertsStore.createThreshold({
+    storageNodeGroup,
+    poolName: poolName ?? null,
+    thresholdBytesPerSec,
+    direction: direction || 'above',
+    cooldownMinutes,
+  });
+
+  res.status(201).json({ data: threshold });
+}
+
+/** PUT /api/v1/qos/alerts/thresholds/:id */
+export async function updateAlertThreshold(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  const { thresholdBytesPerSec, direction, enabled, cooldownMinutes } = req.body;
+
+  const updated = alertsStore.updateThreshold(id, {
+    thresholdBytesPerSec,
+    direction,
+    enabled,
+    cooldownMinutes,
+  });
+  if (!updated) throw new NotFoundError('QoS alert threshold', String(id));
+
+  res.json({ data: updated });
+}
+
+/** DELETE /api/v1/qos/alerts/thresholds/:id */
+export async function deleteAlertThreshold(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  const deleted = alertsStore.deleteThreshold(id);
+  if (!deleted) throw new NotFoundError('QoS alert threshold', String(id));
+
+  res.json({ data: { id, message: 'Alert threshold deleted' } });
+}
+
+// ──────────────────────────────────────────────
+// Alert Events
+// ──────────────────────────────────────────────
+
+/** GET /api/v1/qos/alerts/events */
+export async function listAlertEvents(req: Request, res: Response): Promise<void> {
+  const thresholdId = req.query.thresholdId ? Number(req.query.thresholdId) : undefined;
+  const unacknowledgedOnly = req.query.unacknowledgedOnly === 'true';
+  const limit = req.query.limit ? Number(req.query.limit) : 100;
+
+  const events = alertsStore.listEvents({ thresholdId, unacknowledgedOnly, limit });
+  res.json({ data: events });
+}
+
+/**
+ * POST /api/v1/qos/alerts/events/acknowledge
+ * Body: { eventIds: number[] }
+ */
+export async function acknowledgeAlertEvents(req: Request, res: Response): Promise<void> {
+  const { eventIds } = req.body;
+
+  if (!Array.isArray(eventIds) || eventIds.length === 0) {
+    throw new ValidationError('eventIds must be a non-empty array');
+  }
+
+  const count = alertsStore.acknowledgeEvents(eventIds);
+  res.json({ data: { acknowledged: count } });
+}
+
+/** GET /api/v1/qos/alerts/unacknowledged-count */
+export async function getUnacknowledgedAlertCount(_req: Request, res: Response): Promise<void> {
+  const count = alertsStore.getUnacknowledgedCount();
+  res.json({ data: { count } });
 }

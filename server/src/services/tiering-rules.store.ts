@@ -275,6 +275,9 @@ interface LogRow {
   bytes_processed: number;
   errors: string | null;
   status: string;
+  total_files: number | null;
+  current_file: string | null;
+  updated_at: number | null;
 }
 
 function rowToLog(row: LogRow): ITieringExecutionLog {
@@ -289,6 +292,9 @@ function rowToLog(row: LogRow): ITieringExecutionLog {
     bytesProcessed: row.bytes_processed,
     errors: row.errors ? JSON.parse(row.errors) : undefined,
     status: row.status as ITieringExecutionLog['status'],
+    totalFiles: row.total_files || undefined,
+    currentFile: row.current_file || undefined,
+    updatedAt: row.updated_at || undefined,
   };
 }
 
@@ -354,4 +360,44 @@ export function cleanOldLogs(retentionDays: number): number {
   `);
   const result = stmt.run(cutoff);
   return result.changes;
+}
+
+/** Update in-flight progress without setting completed_at */
+export function updateExecutionLogProgress(
+  logId: number,
+  update: {
+    filesProcessed: number;
+    filesSkipped: number;
+    filesFailed: number;
+    bytesProcessed: number;
+    totalFiles: number;
+    currentFile: string | null;
+  },
+): void {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    UPDATE tiering_execution_log SET
+      files_processed = ?, files_skipped = ?, files_failed = ?,
+      bytes_processed = ?, total_files = ?, current_file = ?,
+      updated_at = unixepoch()
+    WHERE id = ?
+  `);
+  stmt.run(
+    update.filesProcessed, update.filesSkipped, update.filesFailed,
+    update.bytesProcessed, update.totalFiles, update.currentFile,
+    logId,
+  );
+}
+
+/** Mark any stale running logs as failed (crash recovery on startup) */
+export function markStaleRunningLogs(): void {
+  const db = getDatabase();
+  const result = db.prepare(`
+    UPDATE tiering_execution_log
+    SET status = 'failed', completed_at = unixepoch(), current_file = NULL
+    WHERE status = 'running'
+  `).run();
+  if (result.changes > 0) {
+    logger.info({ count: result.changes }, 'Marked stale running tiering logs as failed');
+  }
 }

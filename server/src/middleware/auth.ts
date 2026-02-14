@@ -37,13 +37,24 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
     return;
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    next(new AuthenticationError('Missing or invalid Authorization header'));
+  // Skip JWT auth for worker API paths (uses its own API key auth)
+  if (req.path.startsWith('/api/v1/worker')) {
+    next();
     return;
   }
 
-  const token = authHeader.slice(7);
+  // Accept token from Authorization header or ?token= query param (for <img>/<video> tags)
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : typeof req.query.token === 'string'
+      ? req.query.token
+      : null;
+
+  if (!token) {
+    next(new AuthenticationError('Missing or invalid Authorization header'));
+    return;
+  }
 
   try {
     const payload = verifyToken(token, config.APP_SECRET);

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useApi } from '@/composables/useApi';
 import type { IHealthStatus } from '@shared/types';
 
+const router = useRouter();
 const { data: health, isLoading, error, execute } = useApi<IHealthStatus>('/api/v1/system/health');
 
 const lastChecked = ref<string>('');
@@ -140,6 +142,17 @@ function statusLabel(ok: boolean): string {
         </v-card-text>
       </v-card>
     </div>
+
+    <!-- Automation shortcut -->
+    <v-card class="dashboard-view__card dashboard-view__automation" @click="router.push('/automation')">
+      <v-card-text class="d-flex align-center gap-3">
+        <v-icon color="info" size="40">mdi-robot</v-icon>
+        <div>
+          <div class="text-caption text-medium-emphasis">Background Tasks</div>
+          <div class="text-h6">Automation <v-icon size="18">mdi-arrow-right</v-icon></div>
+        </div>
+      </v-card-text>
+    </v-card>
   </div>
 </template>
 
@@ -179,6 +192,16 @@ function statusLabel(ok: boolean): string {
   &__card {
     background-color: #22252d !important;
     border: 1px solid rgba(55, 65, 81, 0.3);
+  }
+
+  &__automation {
+    margin-top: 24px;
+    cursor: pointer;
+    transition: border-color 150ms ease;
+
+    &:hover {
+      border-color: rgba(59, 130, 246, 0.4);
+    }
   }
 }
 </style>

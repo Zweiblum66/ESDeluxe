@@ -24,6 +24,9 @@ router.post('/', requireAdmin, asyncHandler(spacesController.createSpace));
 // PUT /:name — update space / quota (admin or space manager with quota capability)
 router.put('/:name', requireSpaceManagement('manage_quota'), asyncHandler(spacesController.updateSpace));
 
+// POST /:name/clone — clone/duplicate space (admin only)
+router.post('/:name/clone', requireAdmin, asyncHandler(spacesController.cloneSpace));
+
 // DELETE /:name — delete space (admin only)
 router.delete('/:name', requireAdmin, asyncHandler(spacesController.deleteSpace));
 

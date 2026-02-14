@@ -7,6 +7,10 @@ import { listUsers } from './services/editshare-api/users.service.js';
 import { startScheduler, stopScheduler } from './services/tiering-scheduler.service.js';
 import { startTrashScheduler, stopTrashScheduler } from './services/trash/trash-scheduler.service.js';
 import { remountAllSmbLocations, unmountAllSmbLocations } from './services/archive/smb-mount.service.js';
+import { startAssetScanScheduler, stopAssetScanScheduler } from './services/asset-catalog/scan-scheduler.service.js';
+import { checkFfprobeAvailable, checkExiftoolAvailable } from './services/asset-catalog/metadata.service.js';
+import { startQosScheduler, stopQosScheduler } from './services/qos-scheduler.service.js';
+import { startGuardianReceiver, stopGuardianReceiver } from './services/guardian-receiver.service.js';
 import { createApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -72,6 +76,12 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'Some SMB archive locations failed to remount');
   }
 
+  // --- Check Asset Catalog Tool Availability ---
+  await Promise.all([
+    checkFfprobeAvailable(),
+    checkExiftoolAvailable(),
+  ]);
+
   // --- Start Express Server ---
   const app = createApp();
 
@@ -97,6 +107,15 @@ async function main(): Promise<void> {
     // --- Start Trash Purge Scheduler ---
     startTrashScheduler();
 
+    // --- Start Asset Catalog Scan Scheduler ---
+    startAssetScanScheduler();
+
+    // --- Start QoS History & Scheduling Scheduler ---
+    startQosScheduler();
+
+    // --- Start Guardian Log Receiver ---
+    startGuardianReceiver();
+
     // --- Warm up user list cache in background ---
     listUsers()
       .then((users) => logger.info({ count: users.length }, 'User list cache warmed up'))
@@ -112,6 +131,9 @@ async function main(): Promise<void> {
 
       stopScheduler();
       stopTrashScheduler();
+      stopAssetScanScheduler();
+      stopQosScheduler();
+      stopGuardianReceiver();
 
       // Unmount SMB archive shares
       try {

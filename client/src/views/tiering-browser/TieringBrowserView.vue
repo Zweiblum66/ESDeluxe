@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue';
+import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useTieringBrowserStore } from '@/stores/tiering-browser.store';
+import { useTieringStore } from '@/stores/tiering.store';
 import { useFilesStore } from '@/stores/files.store';
 import { useGoalsStore } from '@/stores/goals.store';
 import PageHeader from '@/components/common/PageHeader.vue';
@@ -19,6 +20,7 @@ import { useAuthStore } from '@/stores/auth.store';
 const route = useRoute();
 const router = useRouter();
 const store = useTieringBrowserStore();
+const tieringStore = useTieringStore();
 const filesStore = useFilesStore();
 const goalsStore = useGoalsStore();
 const authStore = useAuthStore();
@@ -92,6 +94,21 @@ function fileIcon(entry: IFileEntry): string {
 
 function getEntryGoal(entry: IFileEntry): string | undefined {
   return store.entryGoals.get(entry.path);
+}
+
+function goalColor(goal: string): string {
+  const lower = goal.toLowerCase();
+  if (lower === 'online' || lower === 'default') return 'success';
+  if (lower === 'nearline') return 'info';
+  if (lower === 'offline' || lower === 'archive') return 'deep-purple';
+  return 'grey';
+}
+
+function isFileBeingTiered(entry: IFileEntry): boolean {
+  const progress = tieringStore.progress;
+  if (!progress || !progress.currentFile) return false;
+  const fullPath = `${store.currentSpace}/${entry.path}`;
+  return progress.currentFile === fullPath;
 }
 
 /** Returns the filename without extension (for files), or full name (for dirs) */
@@ -269,6 +286,12 @@ onMounted(async () => {
   } else if (store.spaces.length > 0) {
     handleSpaceChange(store.spaces[0].name);
   }
+
+  tieringStore.startProgressPolling();
+});
+
+onUnmounted(() => {
+  tieringStore.stopProgressPolling();
 });
 </script>
 
@@ -406,14 +429,27 @@ onMounted(async () => {
 
             <!-- Goal column -->
             <template #item.goal="{ item }">
-              <div v-if="store.isLoadingGoals" class="d-flex align-center">
+              <!-- Currently being tiered -->
+              <v-chip
+                v-if="isFileBeingTiered(item as any)"
+                size="small"
+                variant="tonal"
+                color="warning"
+                label
+              >
+                <v-progress-circular size="12" width="2" indeterminate class="mr-1" />
+                Tiering...
+              </v-chip>
+              <!-- Loading goals -->
+              <div v-else-if="store.isLoadingGoals" class="d-flex align-center">
                 <v-progress-circular size="14" width="2" indeterminate color="grey" />
               </div>
+              <!-- Goal chip with color -->
               <v-chip
                 v-else-if="getEntryGoal(item as any)"
                 size="small"
                 variant="tonal"
-                color="info"
+                :color="goalColor(getEntryGoal(item as any)!)"
                 label
               >
                 <v-icon start size="small">mdi-target</v-icon>

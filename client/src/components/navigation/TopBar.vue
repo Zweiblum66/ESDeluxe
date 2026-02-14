@@ -1,19 +1,13 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { ref } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUiStore } from '@/stores/ui.store';
 
-const route = useRoute();
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 
 const languageMenu = ref(false);
 const userMenu = ref(false);
-
-const pageTitle = computed(() => {
-  return (route.meta.title as string) || 'ES Manager';
-});
 
 const selectedLanguage = ref('English');
 const languages = ['English', 'Deutsch', 'Fran\u00e7ais', 'Espa\u00f1ol'];
@@ -26,7 +20,7 @@ async function handleLogout(): Promise<void> {
 
 <template>
   <div class="top-bar">
-    <!-- Left: Hamburger (mobile) + Page title -->
+    <!-- Left: Hamburger (mobile) -->
     <div class="top-bar__left">
       <v-btn
         icon="mdi-menu"
@@ -35,7 +29,6 @@ async function handleLogout(): Promise<void> {
         class="top-bar__hamburger"
         @click="uiStore.toggleMobileDrawer()"
       />
-      <h1 class="top-bar__title">{{ pageTitle }}</h1>
     </div>
 
     <!-- Right: Language + User menu -->
@@ -122,17 +115,6 @@ async function handleLogout(): Promise<void> {
 
     @include desktop-up {
       display: none !important;
-    }
-  }
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-    color: #e5e7eb;
-    margin: 0;
-
-    @include phone {
-      font-size: 14px;
     }
   }
 

@@ -26,6 +26,7 @@ interface LocationRow {
   enabled: number;
   total_size: number;
   file_count: number;
+  priority: number;
   last_activity_at: number | null;
   created_at: number;
   updated_at: number;
@@ -64,6 +65,7 @@ function rowToLocation(row: LocationRow): IArchiveLocation {
     enabled: !!row.enabled,
     totalSize: row.total_size,
     fileCount: row.file_count,
+    priority: row.priority,
     lastActivityAt: row.last_activity_at || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -111,8 +113,8 @@ export function getLocation(id: number): IArchiveLocation | null {
 export function createLocation(request: ICreateArchiveLocationRequest): IArchiveLocation {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO archive_locations (name, type, config, description)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO archive_locations (name, type, config, description, priority)
+    VALUES (?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
@@ -120,6 +122,7 @@ export function createLocation(request: ICreateArchiveLocationRequest): IArchive
     request.type,
     JSON.stringify(request.config),
     request.description || null,
+    request.priority ?? 50,
   );
 
   const locationId = Number(result.lastInsertRowid);
@@ -138,6 +141,7 @@ export function updateLocation(id: number, request: IUpdateArchiveLocationReques
   if (request.config !== undefined) { sets.push('config = ?'); params.push(JSON.stringify(request.config)); }
   if (request.description !== undefined) { sets.push('description = ?'); params.push(request.description || null); }
   if (request.enabled !== undefined) { sets.push('enabled = ?'); params.push(request.enabled ? 1 : 0); }
+  if (request.priority !== undefined) { sets.push('priority = ?'); params.push(request.priority); }
 
   params.push(id);
 
@@ -329,6 +333,38 @@ export function deleteCatalogEntry(id: number): boolean {
   const stmt = db.prepare(`DELETE FROM archive_catalog WHERE id = ?`);
   const result = stmt.run(id);
   return result.changes > 0;
+}
+
+// ──────────────────────────────────────────────
+// Priority-based lookups
+// ──────────────────────────────────────────────
+
+/**
+ * Returns ALL catalog entries for a given file path (space + path) with status='archived',
+ * joined with location data and ordered by location priority ASC (lowest = highest priority).
+ */
+export function getCatalogEntriesByPath(spaceName: string, filePath: string): IArchiveCatalogEntry[] {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT c.*, l.name as archive_location_name
+    FROM archive_catalog c
+    LEFT JOIN archive_locations l ON l.id = c.archive_location_id
+    WHERE c.original_space = ? AND c.original_path = ?
+      AND c.status = 'archived'
+      AND l.enabled = 1
+    ORDER BY l.priority ASC, c.archived_at DESC
+  `);
+  const rows = stmt.all(spaceName, filePath) as CatalogRow[];
+  return rows.map(rowToCatalogEntry);
+}
+
+/**
+ * Returns enabled locations ordered by priority ASC (lowest = highest priority).
+ */
+export function getLocationsByPriority(): IArchiveLocation[] {
+  const db = getDatabase();
+  const stmt = db.prepare(`SELECT * FROM archive_locations WHERE enabled = 1 ORDER BY priority ASC`);
+  return (stmt.all() as LocationRow[]).map(rowToLocation);
 }
 
 // ──────────────────────────────────────────────

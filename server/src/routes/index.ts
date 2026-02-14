@@ -10,6 +10,9 @@ import tieringRoutes from './tiering.routes.js';
 import archiveRoutes from './archive.routes.js';
 import trashRoutes from './trash.routes.js';
 import rolesRoutes from './roles.routes.js';
+import catalogRoutes from './asset-catalog.routes.js';
+import guardianRoutes from './guardian.routes.js';
+import workerRoutes from './worker.routes.js';
 import { requireAdmin } from '../middleware/admin.js';
 
 const router = Router();
@@ -29,5 +32,10 @@ router.use('/spaces', spacesRoutes);
 router.use('/goals', goalsRoutes);
 router.use('/archive', archiveRoutes);
 router.use('/trash', trashRoutes);
+router.use('/catalog', catalogRoutes);
+router.use('/guardian', requireAdmin, guardianRoutes);
+
+// Worker API (uses its own API key auth, not JWT)
+router.use('/worker', workerRoutes);
 
 export default router;

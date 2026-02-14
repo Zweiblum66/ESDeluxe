@@ -235,6 +235,45 @@ export async function restoreFile(catalogEntryId: number): Promise<IArchiveCatal
 }
 
 /**
+ * Restore a file using priority-based location selection.
+ * Finds all archived copies of the file, sorted by location priority,
+ * and attempts restore from each until one succeeds.
+ */
+export async function restoreFileByPriority(
+  spaceName: string,
+  filePath: string,
+): Promise<IArchiveCatalogEntry> {
+  // Get all archived entries for this file, ordered by location priority
+  const entries = archiveStore.getCatalogEntriesByPath(spaceName, filePath);
+  if (entries.length === 0) {
+    throw new NotFoundError('Archived copy', `${spaceName}/${filePath}`);
+  }
+
+  const errors: { locationName: string; error: string }[] = [];
+
+  for (const entry of entries) {
+    try {
+      logger.info(
+        { space: spaceName, path: filePath, locationId: entry.archiveLocationId, locationName: entry.archiveLocationName },
+        `Attempting restore from location: ${entry.archiveLocationName} (priority entry)`,
+      );
+      return await restoreFile(entry.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push({ locationName: entry.archiveLocationName || `location-${entry.archiveLocationId}`, error: message });
+      logger.warn(
+        { err, space: spaceName, path: filePath, locationName: entry.archiveLocationName },
+        'Restore attempt failed, trying next priority location',
+      );
+    }
+  }
+
+  // All attempts failed
+  const errorDetail = errors.map(e => `${e.locationName}: ${e.error}`).join('; ');
+  throw new AppError(`Failed to restore from all ${entries.length} locations: ${errorDetail}`);
+}
+
+/**
  * Bulk archive: archive multiple files to the same location.
  */
 export async function bulkArchive(

@@ -15,6 +15,7 @@ interface NavItem {
   routeName: string;
   adminOnly?: boolean;
   spaceManagerVisible?: boolean;
+  group?: string;
 }
 
 interface SectionNav {
@@ -23,17 +24,23 @@ interface SectionNav {
 
 const sectionNavItems: SectionNav = {
   management: [
-    { title: 'Users', icon: 'mdi-account-multiple', to: '/users', routeName: 'users', adminOnly: true },
-    { title: 'Groups', icon: 'mdi-account-group', to: '/groups', routeName: 'groups', adminOnly: true },
-    { title: 'Media Spaces', icon: 'mdi-folder-multiple', to: '/spaces', routeName: 'spaces', adminOnly: true, spaceManagerVisible: true },
-    { title: 'File Browser', icon: 'mdi-file-tree', to: '/files', routeName: 'files' },
-    { title: 'Tiering', icon: 'mdi-swap-vertical-bold', to: '/tiering', routeName: 'tiering', adminOnly: true },
-    { title: 'Tiering Browser', icon: 'mdi-layers-triple', to: '/tiering-browser', routeName: 'tiering-browser' },
-    { title: 'Archive', icon: 'mdi-archive', to: '/archive', routeName: 'archive' },
-    { title: 'Access', icon: 'mdi-shield-key', to: '/access', routeName: 'access', adminOnly: true, spaceManagerVisible: true },
-    { title: 'Limited Admin', icon: 'mdi-shield-account', to: '/roles', routeName: 'roles', adminOnly: true },
-    { title: 'QoS', icon: 'mdi-speedometer', to: '/qos', routeName: 'qos', adminOnly: true },
-    { title: 'Trash', icon: 'mdi-delete', to: '/trash', routeName: 'trash' },
+    // Administration
+    { title: 'Users', icon: 'mdi-account-multiple', to: '/users', routeName: 'users', adminOnly: true, group: 'Administration' },
+    { title: 'Groups', icon: 'mdi-account-group', to: '/groups', routeName: 'groups', adminOnly: true, group: 'Administration' },
+    { title: 'Media Spaces', icon: 'mdi-folder-multiple', to: '/spaces', routeName: 'spaces', adminOnly: true, spaceManagerVisible: true, group: 'Administration' },
+    { title: 'Access', icon: 'mdi-shield-key', to: '/access', routeName: 'access', adminOnly: true, spaceManagerVisible: true, group: 'Administration' },
+    { title: 'Limited Admin', icon: 'mdi-shield-account', to: '/roles', routeName: 'roles', adminOnly: true, group: 'Administration' },
+    // Content
+    { title: 'File Browser', icon: 'mdi-file-tree', to: '/files', routeName: 'files', group: 'Content' },
+    { title: 'Asset Catalog', icon: 'mdi-filmstrip-box-multiple', to: '/catalog', routeName: 'catalog', group: 'Content' },
+    { title: 'Archive', icon: 'mdi-archive', to: '/archive', routeName: 'archive', group: 'Content' },
+    { title: 'Trash', icon: 'mdi-delete', to: '/trash', routeName: 'trash', group: 'Content' },
+    { title: 'Tiering Browser', icon: 'mdi-layers-triple', to: '/tiering-browser', routeName: 'tiering-browser', group: 'Content' },
+    // Automation
+    { title: 'Automation', icon: 'mdi-robot', to: '/automation', routeName: 'automation', adminOnly: true, group: 'Automation' },
+    { title: 'Tiering Rules', icon: 'mdi-swap-vertical-bold', to: '/tiering', routeName: 'tiering', adminOnly: true, group: 'Automation' },
+    { title: 'QoS', icon: 'mdi-speedometer', to: '/qos', routeName: 'qos', adminOnly: true, group: 'Automation' },
+    { title: 'Auditing', icon: 'mdi-shield-search', to: '/guardian', routeName: 'guardian', adminOnly: true, group: 'Automation' },
   ],
   synchronization: [
     { title: 'Sync Status', icon: 'mdi-sync', to: '/sync', routeName: 'sync', adminOnly: true },
@@ -69,6 +76,14 @@ function isActive(item: NavItem): boolean {
   // Support prefix matching (e.g., 'files' matches 'files', 'files-space', 'files-path')
   return name === item.routeName || name.startsWith(item.routeName + '-');
 }
+
+function groupLabel(index: number): string | null {
+  const items = currentNavItems.value;
+  const current = items[index];
+  if (!current.group) return null;
+  if (index === 0) return current.group;
+  return items[index - 1].group !== current.group ? current.group : null;
+}
 </script>
 
 <template>
@@ -80,17 +95,23 @@ function isActive(item: NavItem): boolean {
 
     <!-- Navigation items -->
     <nav class="nav-sidebar__nav">
-      <router-link
-        v-for="item in currentNavItems"
-        :key="item.routeName"
-        :to="item.to"
-        class="nav-sidebar__item"
-        :class="{ 'nav-sidebar__item--active': isActive(item) }"
-      >
-        <span class="nav-sidebar__indicator" />
-        <v-icon size="20" class="nav-sidebar__icon">{{ item.icon }}</v-icon>
-        <span class="nav-sidebar__label">{{ item.title }}</span>
-      </router-link>
+      <template v-for="(item, index) in currentNavItems" :key="item.routeName">
+        <div
+          v-if="groupLabel(index)"
+          class="nav-sidebar__group-label"
+        >
+          {{ groupLabel(index) }}
+        </div>
+        <router-link
+          :to="item.to"
+          class="nav-sidebar__item"
+          :class="{ 'nav-sidebar__item--active': isActive(item) }"
+        >
+          <span class="nav-sidebar__indicator" />
+          <v-icon size="20" class="nav-sidebar__icon">{{ item.icon }}</v-icon>
+          <span class="nav-sidebar__label">{{ item.title }}</span>
+        </router-link>
+      </template>
     </nav>
   </div>
 </template>
@@ -128,6 +149,22 @@ function isActive(item: NavItem): boolean {
     flex-direction: column;
     padding: 8px 0;
     gap: 2px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  &__group-label {
+    padding: 16px 20px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6b7280;
+    user-select: none;
+
+    &:first-child {
+      padding-top: 8px;
+    }
   }
 
   &__item {

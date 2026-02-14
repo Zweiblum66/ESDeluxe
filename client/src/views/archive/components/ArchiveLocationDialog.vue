@@ -41,6 +41,7 @@ const form = ref({
   s3SecretAccessKey: '',
   // Common
   description: '',
+  priority: 50,
 });
 
 const isSaving = ref(false);
@@ -76,6 +77,7 @@ watch(() => props.modelValue, (visible) => {
       form.value.name = props.editLocation.name;
       form.value.type = props.editLocation.type as typeof form.value.type;
       form.value.description = props.editLocation.description || '';
+      form.value.priority = props.editLocation.priority ?? 50;
 
       if (props.editLocation.type === 'local') {
         form.value.basePath = (props.editLocation.config as { basePath?: string }).basePath || '';
@@ -114,7 +116,7 @@ watch(() => props.modelValue, (visible) => {
         name: '', type: 'local', basePath: '',
         sharePath: '', smbUsername: '', smbPassword: '', smbDomain: '', mountOptions: '',
         s3Bucket: '', s3Region: '', s3Prefix: '', s3Endpoint: '', s3AccessKeyId: '', s3SecretAccessKey: '',
-        description: '',
+        description: '', priority: 50,
       };
     }
   }
@@ -177,6 +179,7 @@ async function save(): Promise<void> {
         name: form.value.name,
         description: form.value.description || undefined,
         config: config as unknown as IUpdateArchiveLocationRequest['config'],
+        priority: form.value.priority,
       };
       const ok = await store.updateLocation(props.editLocation.id, update);
       if (ok) { emit('saved'); close(); }
@@ -186,6 +189,7 @@ async function save(): Promise<void> {
         type: form.value.type,
         config: config as unknown as ICreateArchiveLocationRequest['config'],
         description: form.value.description || undefined,
+        priority: form.value.priority,
       };
       const ok = await store.createLocation(request);
       if (ok) { emit('saved'); close(); }
@@ -209,7 +213,7 @@ async function testConnection(): Promise<void> {
 
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="560" persistent>
-    <v-card class="bg-grey-darken-4">
+    <v-card style="background-color: #22252d; border: 1px solid rgba(55, 65, 81, 0.3);">
       <v-card-title class="d-flex align-center pa-4">
         <v-icon class="mr-2" color="deep-purple">mdi-archive-plus</v-icon>
         {{ dialogTitle }}
@@ -384,6 +388,19 @@ async function testConnection(): Promise<void> {
           density="comfortable"
           rows="2"
           class="mb-3"
+        />
+
+        <v-text-field
+          v-model.number="form.priority"
+          label="Restore Priority"
+          type="number"
+          min="1"
+          max="100"
+          variant="outlined"
+          density="comfortable"
+          class="mb-3"
+          hint="Lower number = higher priority (tried first during restore). Default: 50"
+          persistent-hint
         />
 
         <!-- Test connection (only for edit mode) -->

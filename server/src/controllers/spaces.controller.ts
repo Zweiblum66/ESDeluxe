@@ -428,3 +428,39 @@ export async function removePermissionOverride(req: Request, res: Response): Pro
     data: { space: name, username, message: 'Permission override removed' },
   });
 }
+
+/**
+ * POST /api/v1/spaces/:name/clone
+ * Clone/duplicate a space with optional user and group access copying.
+ * Body: { newName, copyUsers?, copyGroups? }
+ */
+export async function cloneSpace(req: Request, res: Response): Promise<void> {
+  const sourceName = getSpaceName(req);
+  const { newName, copyUsers, copyGroups } = req.body;
+
+  if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
+    throw new ValidationError('New space name is required');
+  }
+
+  const cleanNewName = newName.trim();
+  if (cleanNewName.toLowerCase() === sourceName.toLowerCase()) {
+    throw new ValidationError('New name must be different from source name');
+  }
+
+  const result = await esSpaces.cloneSpace(
+    sourceName,
+    cleanNewName,
+    copyUsers !== false, // default true
+    copyGroups !== false, // default true
+  );
+
+  logger.info({
+    sourceName,
+    newName: cleanNewName,
+    usersCopied: result.usersCopied,
+    groupsCopied: result.groupsCopied,
+    warnings: result.warnings.length,
+  }, 'Space cloned successfully');
+
+  res.status(201).json({ data: result });
+}

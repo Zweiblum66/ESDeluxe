@@ -6,6 +6,7 @@ interface ExecOptions {
   timeout?: number;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  sudo?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -25,14 +26,18 @@ export function execEfsCommand(
   args: string[] = [],
   options: ExecOptions = {},
 ): Promise<string> {
-  const { timeout = DEFAULT_TIMEOUT_MS, cwd, env } = options;
+  const { timeout = DEFAULT_TIMEOUT_MS, cwd, env, sudo = false } = options;
+
+  // When sudo is enabled, run via /usr/bin/sudo with the original command as the first arg
+  const actualCommand = sudo ? '/usr/bin/sudo' : command;
+  const actualArgs = sudo ? [command, ...args] : args;
 
   return new Promise((resolve, reject) => {
-    logger.debug({ command, args }, `Executing EFS command: ${command} ${args.join(' ')}`);
+    logger.debug({ command, args, sudo }, `Executing EFS command: ${sudo ? 'sudo ' : ''}${command} ${args.join(' ')}`);
 
     execFile(
-      command,
-      args,
+      actualCommand,
+      actualArgs,
       {
         timeout,
         cwd,

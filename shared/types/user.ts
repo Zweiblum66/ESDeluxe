@@ -41,3 +41,30 @@ export interface IUpdatePasswordRequest {
 export interface IUpdateUserGroupsRequest {
   groups: string[];
 }
+
+/** Bulk user creation request */
+export interface IBulkCreateUsersRequest {
+  users: Array<{ username: string; password: string }>;
+}
+
+/** Rename user request */
+export interface IRenameUserRequest {
+  newUsername: string;
+  password: string;
+}
+
+/** Result of a bulk operation */
+export interface IBulkOperationResult {
+  succeeded: number;
+  failed: number;
+  errors: Record<string, string>;
+}
+
+/** Result of a user rename operation */
+export interface IRenameUserResult {
+  oldUsername: string;
+  newUsername: string;
+  groupsRestored: string[];
+  spacesRestored: number;
+  warnings: string[];
+}

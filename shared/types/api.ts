@@ -1,3 +1,9 @@
+import type { ITieringSchedulerStatus, ITieringProgress } from './tiering';
+import type { IAssetScanSchedulerStatus, ICatalogJobStats } from './asset-catalog';
+import type { ITrashSchedulerStatus } from './trash';
+import type { IQosSchedulerStatus } from './qos';
+import type { IGuardianReceiverStatus } from './guardian';
+
 /** Generic API response wrapper */
 export interface IApiResponse<T> {
   data: T;
@@ -27,4 +33,19 @@ export interface IHealthStatus {
   efsMounted: boolean;
   version: string;
   uptime: number;
+}
+
+/** Combined automation status — all background services in one response */
+export interface IAutomationStatus {
+  tiering: {
+    scheduler: ITieringSchedulerStatus;
+    progress: ITieringProgress | null;
+  };
+  catalogScan: {
+    scheduler: IAssetScanSchedulerStatus;
+    jobs: ICatalogJobStats;
+  };
+  trashPurge: ITrashSchedulerStatus;
+  qos: IQosSchedulerStatus;
+  guardian: IGuardianReceiverStatus;
 }

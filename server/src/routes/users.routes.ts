@@ -7,6 +7,9 @@ const router = Router();
 // GET /
 router.get('/', asyncHandler(usersController.listUsers));
 
+// POST /bulk — MUST come before /:username to avoid param capture
+router.post('/bulk', asyncHandler(usersController.bulkCreateUsers));
+
 // GET /:username
 router.get('/:username', asyncHandler(usersController.getUser));
 
@@ -15,6 +18,9 @@ router.post('/', asyncHandler(usersController.createUser));
 
 // DELETE /:username
 router.delete('/:username', asyncHandler(usersController.deleteUser));
+
+// POST /:username/rename
+router.post('/:username/rename', asyncHandler(usersController.renameUser));
 
 // PUT /:username/password
 router.put('/:username/password', asyncHandler(usersController.updatePassword));

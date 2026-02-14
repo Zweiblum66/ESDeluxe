@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import { useTieringStore } from '@/stores/tiering.store';
 import { useSpacesStore } from '@/stores/spaces.store';
 import PageHeader from '@/components/common/PageHeader.vue';
 import DataTable from '@/components/common/DataTable.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import SchedulerStatusCard from './components/SchedulerStatusCard.vue';
+import TieringProgressCard from './components/TieringProgressCard.vue';
 import TieringRuleDialog from './components/TieringRuleDialog.vue';
 import TieringLogsPanel from './components/TieringLogsPanel.vue';
 import { useResponsive } from '@/composables/useResponsive';
@@ -201,6 +202,20 @@ onMounted(async () => {
     store.fetchRecentLogs(),
     spacesStore.fetchSpaces(),
   ]);
+  store.startProgressPolling();
+});
+
+onUnmounted(() => {
+  store.stopProgressPolling();
+});
+
+// Auto-refresh when a rule finishes (progress goes from non-null to null)
+watch(() => store.progress, (newVal, oldVal) => {
+  if (oldVal && !newVal) {
+    store.fetchRecentLogs();
+    store.fetchRules();
+    store.fetchSchedulerStatus();
+  }
 });
 </script>
 
@@ -243,6 +258,9 @@ onMounted(async () => {
 
     <!-- Scheduler Status -->
     <SchedulerStatusCard :status="store.schedulerStatus" />
+
+    <!-- Live Progress (shown while a rule is executing) -->
+    <TieringProgressCard v-if="store.progress" :progress="store.progress" />
 
     <!-- Rules Table -->
     <DataTable
@@ -316,6 +334,9 @@ onMounted(async () => {
       <template #item.lastRunAt="{ item }">
         <span class="text-caption text-medium-emphasis">
           {{ formatDate((item as any).lastRunAt) }}
+        </span>
+        <span v-if="(item as any).lastRunErrors" class="text-error ml-1" style="font-size: 12px;">
+          ({{ (item as any).lastRunErrors }} failed)
         </span>
       </template>
 

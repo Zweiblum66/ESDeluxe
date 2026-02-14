@@ -4,7 +4,14 @@ import { getEsApiClient } from '../services/editshare-api/client.js';
 import { getLdapClient } from '../services/ldap/client.js';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
-import type { IHealthStatus } from '../../../shared/types/api.js';
+import { getSchedulerStatus as getTieringStatus, getCurrentProgress as getTieringProgress } from '../services/tiering-scheduler.service.js';
+import { getQosSchedulerStatus } from '../services/qos-scheduler.service.js';
+import { getSchedulerStatus as getTrashStatus } from '../services/trash/trash-scheduler.service.js';
+import { getSchedulerStatus as getCatalogScanStatus } from '../services/asset-catalog/scan-scheduler.service.js';
+import { getGuardianReceiverStatus } from '../services/guardian-receiver.service.js';
+import * as guardianEventsStore from '../services/guardian-events.store.js';
+import * as jobStore from '../services/asset-catalog/job.store.js';
+import type { IHealthStatus, IAutomationStatus } from '../../../shared/types/api.js';
 
 const startTime = Date.now();
 
@@ -55,4 +62,29 @@ export async function health(_req: Request, res: Response): Promise<void> {
 
   const httpStatus = status.status === 'error' ? 503 : 200;
   res.status(httpStatus).json({ data: status });
+}
+
+/**
+ * GET /api/v1/system/automation
+ * Returns combined status for all background automation services.
+ */
+export async function getAutomationStatus(_req: Request, res: Response): Promise<void> {
+  const tiering = getTieringStatus();
+  const tieringProgress = getTieringProgress();
+  const qos = getQosSchedulerStatus();
+  const trash = getTrashStatus();
+  const catalogScan = getCatalogScanStatus();
+  const guardianBase = getGuardianReceiverStatus();
+  const totalStoredEvents = guardianEventsStore.getTotalCount();
+  const catalogJobs = jobStore.getJobStats();
+
+  const data: IAutomationStatus = {
+    tiering: { scheduler: tiering, progress: tieringProgress },
+    catalogScan: { scheduler: catalogScan, jobs: catalogJobs },
+    trashPurge: trash,
+    qos,
+    guardian: { ...guardianBase, totalStoredEvents },
+  };
+
+  res.json({ data });
 }

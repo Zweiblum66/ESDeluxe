@@ -145,210 +145,200 @@ onMounted(async () => {
       {{ rolesStore.error }}
     </v-alert>
 
-    <div class="roles-view__content mx-4">
-      <v-row>
-        <!-- Left panel: Space list -->
-        <v-col cols="12" md="4" lg="3">
-          <v-card variant="outlined" class="roles-view__sidebar">
-            <v-card-title class="text-body-1 font-weight-medium pb-2">
-              Spaces
-            </v-card-title>
-            <div class="px-3 pb-2">
-              <v-text-field
-                v-model="spaceSearch"
-                density="compact"
-                variant="outlined"
-                placeholder="Search spaces..."
-                prepend-inner-icon="mdi-magnify"
-                hide-details
-                clearable
-              />
-            </div>
-            <v-list density="compact" class="roles-view__space-list">
-              <v-list-item
-                v-for="space in filteredSpaces"
-                :key="space.name"
-                :active="selectedSpaceName === space.name"
-                @click="selectSpace(space.name)"
-              >
-                <template #prepend>
-                  <v-icon size="20">mdi-folder</v-icon>
-                </template>
-                <v-list-item-title>{{ space.name }}</v-list-item-title>
-                <template #append>
-                  <v-badge
-                    v-if="managerCount(space.name) > 0"
-                    :content="managerCount(space.name)"
-                    color="primary"
-                    inline
-                  />
-                </template>
-              </v-list-item>
-              <v-list-item v-if="filteredSpaces.length === 0">
-                <v-list-item-title class="text-medium-emphasis text-center">
-                  No spaces found
-                </v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-card>
-        </v-col>
+    <div class="roles-view__content">
+      <!-- Left panel: Space list -->
+      <div class="roles-view__sidebar">
+        <div class="roles-view__sidebar-header">Spaces</div>
+        <div class="roles-view__sidebar-search">
+          <v-text-field
+            v-model="spaceSearch"
+            density="compact"
+            variant="outlined"
+            placeholder="Search spaces..."
+            prepend-inner-icon="mdi-magnify"
+            hide-details
+            clearable
+          />
+        </div>
+        <div class="roles-view__space-list">
+          <div
+            v-for="space in filteredSpaces"
+            :key="space.name"
+            class="roles-view__space-item"
+            :class="{ 'roles-view__space-item--active': selectedSpaceName === space.name }"
+            @click="selectSpace(space.name)"
+          >
+            <v-icon size="18" class="mr-2">mdi-folder</v-icon>
+            <span class="roles-view__space-name">{{ space.name }}</span>
+            <v-badge
+              v-if="managerCount(space.name) > 0"
+              :content="managerCount(space.name)"
+              color="primary"
+              inline
+            />
+          </div>
+          <div v-if="filteredSpaces.length === 0" class="roles-view__space-empty">
+            No spaces found
+          </div>
+        </div>
+      </div>
 
-        <!-- Right panel: Managers for selected space -->
-        <v-col cols="12" md="8" lg="9">
-          <v-card v-if="!selectedSpaceName" variant="outlined" class="d-flex align-center justify-center" style="min-height: 300px;">
-            <div class="text-center text-medium-emphasis">
-              <v-icon size="48" class="mb-3 opacity-40">mdi-shield-account</v-icon>
-              <div class="text-body-1">Select a space to manage its permissions</div>
-              <div class="text-caption mt-1">Space managers can manage users, groups, quotas, goals, and trash for their assigned spaces</div>
-            </div>
-          </v-card>
+      <!-- Right panel: Managers for selected space -->
+      <div class="roles-view__main">
+        <!-- Empty state -->
+        <div v-if="!selectedSpaceName" class="roles-view__empty">
+          <v-icon size="48" class="mb-3 opacity-40">mdi-shield-account</v-icon>
+          <div class="text-body-1">Select a space to manage its permissions</div>
+          <div class="text-caption mt-1 text-medium-emphasis">Space managers can manage users, groups, quotas, goals, and trash for their assigned spaces</div>
+        </div>
 
-          <v-card v-else variant="outlined">
-            <v-card-title class="d-flex align-center">
-              <v-icon class="mr-2">mdi-folder</v-icon>
-              {{ selectedSpaceName }}
-              <v-spacer />
-              <v-btn
-                color="primary"
-                size="small"
-                variant="tonal"
-                prepend-icon="mdi-plus"
-                @click="showAssignDialog = true"
-              >
-                Add Manager
-              </v-btn>
-            </v-card-title>
+        <template v-else>
+          <!-- Header -->
+          <div class="roles-view__main-header">
+            <v-icon class="mr-2" size="20">mdi-folder</v-icon>
+            <span class="font-weight-medium">{{ selectedSpaceName }}</span>
+            <v-spacer />
+            <v-btn
+              color="primary"
+              size="small"
+              variant="tonal"
+              prepend-icon="mdi-plus"
+              @click="showAssignDialog = true"
+            >
+              Add Manager
+            </v-btn>
+          </div>
 
-            <v-card-text v-if="rolesStore.isLoading" class="text-center py-8">
-              <v-progress-circular indeterminate color="primary" />
-            </v-card-text>
+          <!-- Loading -->
+          <div v-if="rolesStore.isLoading" class="text-center py-8">
+            <v-progress-circular indeterminate color="primary" />
+          </div>
 
-            <v-card-text v-else>
-              <!-- User managers -->
-              <div class="mb-6">
-                <div class="text-subtitle-2 font-weight-medium mb-2 d-flex align-center ga-2">
-                  <v-icon size="18">mdi-account</v-icon>
-                  User Managers
-                  <v-chip size="x-small" variant="tonal">{{ currentManagers?.users.length ?? 0 }}</v-chip>
-                </div>
-
-                <v-table v-if="currentManagers?.users.length" density="compact">
-                  <thead>
-                    <tr>
-                      <th>Username</th>
-                      <th>Capabilities</th>
-                      <th>Assigned</th>
-                      <th class="text-end" style="width: 90px;"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="u in currentManagers.users" :key="u.username">
-                      <td>
-                        <div class="d-flex align-center ga-2">
-                          <v-icon size="18" color="primary">mdi-account</v-icon>
-                          {{ u.username }}
-                        </div>
-                      </td>
-                      <td>
-                        <div class="d-flex align-center ga-1 flex-wrap">
-                          <v-chip v-if="allCapsEnabled(u.capabilities)" size="x-small" variant="tonal" color="success">
-                            Full Access
-                          </v-chip>
-                          <template v-else>
-                            <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageUsers ? 'success' : 'default'">
-                              <v-icon start size="12">{{ u.capabilities.canManageUsers ? 'mdi-check' : 'mdi-close' }}</v-icon>
-                              Users
-                            </v-chip>
-                            <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageGroups ? 'success' : 'default'">
-                              <v-icon start size="12">{{ u.capabilities.canManageGroups ? 'mdi-check' : 'mdi-close' }}</v-icon>
-                              Groups
-                            </v-chip>
-                            <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageQuota ? 'success' : 'default'">
-                              <v-icon start size="12">{{ u.capabilities.canManageQuota ? 'mdi-check' : 'mdi-close' }}</v-icon>
-                              Quota
-                            </v-chip>
-                            <v-chip v-if="u.capabilities.canManageQuota && u.capabilities.maxQuotaBytes" size="x-small" variant="outlined" color="warning">
-                              max {{ u.capabilities.maxQuotaBytes >= 1024 * 1024 * 1024 * 1024 ? Math.round(u.capabilities.maxQuotaBytes / (1024 * 1024 * 1024 * 1024)) + ' TB' : Math.round(u.capabilities.maxQuotaBytes / (1024 * 1024 * 1024)) + ' GB' }}
-                            </v-chip>
-                          </template>
-                        </div>
-                      </td>
-                      <td class="text-medium-emphasis">{{ formatDate(u.assignedAt) }}</td>
-                      <td class="text-end">
-                        <div class="d-flex ga-1 justify-end">
-                          <v-btn
-                            size="x-small"
-                            variant="tonal"
-                            color="primary"
-                            icon="mdi-shield-lock-outline"
-                            @click="openCapsDialog(u.username, u.capabilities)"
-                          />
-                          <v-btn
-                            size="x-small"
-                            variant="tonal"
-                            color="error"
-                            icon="mdi-close"
-                            @click="openRemoveConfirm('user', u.username)"
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </v-table>
-
-                <div v-else class="text-medium-emphasis text-body-2 pa-3">
-                  No user managers assigned
-                </div>
+          <div v-else class="roles-view__tables">
+            <!-- User managers -->
+            <div class="mb-6">
+              <div class="text-subtitle-2 font-weight-medium mb-2 d-flex align-center ga-2">
+                <v-icon size="18">mdi-account</v-icon>
+                User Managers
+                <v-chip size="x-small" variant="tonal">{{ currentManagers?.users.length ?? 0 }}</v-chip>
               </div>
 
-              <!-- Group managers -->
-              <div>
-                <div class="text-subtitle-2 font-weight-medium mb-2 d-flex align-center ga-2">
-                  <v-icon size="18">mdi-account-group</v-icon>
-                  Group Managers
-                  <v-chip size="x-small" variant="tonal">{{ currentManagers?.groups.length ?? 0 }}</v-chip>
-                </div>
-
-                <v-table v-if="currentManagers?.groups.length" density="compact">
-                  <thead>
-                    <tr>
-                      <th>Group</th>
-                      <th>Members</th>
-                      <th>Assigned</th>
-                      <th class="text-end" style="width: 60px;"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="g in currentManagers.groups" :key="g.groupName">
-                      <td>
-                        <div class="d-flex align-center ga-2">
-                          <v-icon size="18" color="info">mdi-account-group</v-icon>
-                          {{ g.groupName }}
-                        </div>
-                      </td>
-                      <td class="text-medium-emphasis">{{ g.memberCount ?? '—' }}</td>
-                      <td class="text-medium-emphasis">{{ formatDate(g.assignedAt) }}</td>
-                      <td class="text-end">
+              <v-table v-if="currentManagers?.users.length" density="compact">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Capabilities</th>
+                    <th>Assigned</th>
+                    <th class="text-end" style="width: 90px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="u in currentManagers.users" :key="u.username">
+                    <td>
+                      <div class="d-flex align-center ga-2">
+                        <v-icon size="18" color="primary">mdi-account</v-icon>
+                        {{ u.username }}
+                      </div>
+                    </td>
+                    <td>
+                      <div class="d-flex align-center ga-1 flex-wrap">
+                        <v-chip v-if="allCapsEnabled(u.capabilities)" size="x-small" variant="tonal" color="success">
+                          Full Access
+                        </v-chip>
+                        <template v-else>
+                          <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageUsers ? 'success' : 'default'">
+                            <v-icon start size="12">{{ u.capabilities.canManageUsers ? 'mdi-check' : 'mdi-close' }}</v-icon>
+                            Users
+                          </v-chip>
+                          <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageGroups ? 'success' : 'default'">
+                            <v-icon start size="12">{{ u.capabilities.canManageGroups ? 'mdi-check' : 'mdi-close' }}</v-icon>
+                            Groups
+                          </v-chip>
+                          <v-chip size="x-small" variant="tonal" :color="u.capabilities.canManageQuota ? 'success' : 'default'">
+                            <v-icon start size="12">{{ u.capabilities.canManageQuota ? 'mdi-check' : 'mdi-close' }}</v-icon>
+                            Quota
+                          </v-chip>
+                          <v-chip v-if="u.capabilities.canManageQuota && u.capabilities.maxQuotaBytes" size="x-small" variant="outlined" color="warning">
+                            max {{ u.capabilities.maxQuotaBytes >= 1024 * 1024 * 1024 * 1024 ? Math.round(u.capabilities.maxQuotaBytes / (1024 * 1024 * 1024 * 1024)) + ' TB' : Math.round(u.capabilities.maxQuotaBytes / (1024 * 1024 * 1024)) + ' GB' }}
+                          </v-chip>
+                        </template>
+                      </div>
+                    </td>
+                    <td class="text-medium-emphasis">{{ formatDate(u.assignedAt) }}</td>
+                    <td class="text-end">
+                      <div class="d-flex ga-1 justify-end">
+                        <v-btn
+                          size="x-small"
+                          variant="tonal"
+                          color="primary"
+                          icon="mdi-shield-lock-outline"
+                          @click="openCapsDialog(u.username, u.capabilities)"
+                        />
                         <v-btn
                           size="x-small"
                           variant="tonal"
                           color="error"
                           icon="mdi-close"
-                          @click="openRemoveConfirm('group', g.groupName)"
+                          @click="openRemoveConfirm('user', u.username)"
                         />
-                      </td>
-                    </tr>
-                  </tbody>
-                </v-table>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
 
-                <div v-else class="text-medium-emphasis text-body-2 pa-3">
-                  No group managers assigned
-                </div>
+              <div v-else class="text-medium-emphasis text-body-2 pa-3">
+                No user managers assigned
               </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
+            </div>
+
+            <!-- Group managers -->
+            <div>
+              <div class="text-subtitle-2 font-weight-medium mb-2 d-flex align-center ga-2">
+                <v-icon size="18">mdi-account-group</v-icon>
+                Group Managers
+                <v-chip size="x-small" variant="tonal">{{ currentManagers?.groups.length ?? 0 }}</v-chip>
+              </div>
+
+              <v-table v-if="currentManagers?.groups.length" density="compact">
+                <thead>
+                  <tr>
+                    <th>Group</th>
+                    <th>Members</th>
+                    <th>Assigned</th>
+                    <th class="text-end" style="width: 60px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="g in currentManagers.groups" :key="g.groupName">
+                    <td>
+                      <div class="d-flex align-center ga-2">
+                        <v-icon size="18" color="info">mdi-account-group</v-icon>
+                        {{ g.groupName }}
+                      </div>
+                    </td>
+                    <td class="text-medium-emphasis">{{ g.memberCount ?? '—' }}</td>
+                    <td class="text-medium-emphasis">{{ formatDate(g.assignedAt) }}</td>
+                    <td class="text-end">
+                      <v-btn
+                        size="x-small"
+                        variant="tonal"
+                        color="error"
+                        icon="mdi-close"
+                        @click="openRemoveConfirm('group', g.groupName)"
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
+
+              <div v-else class="text-medium-emphasis text-body-2 pa-3">
+                No group managers assigned
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
 
     <!-- Assign Manager Dialog -->
@@ -384,14 +374,127 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .roles-view {
+  &__content {
+    display: flex;
+    background-color: #22252d;
+    border: 1px solid rgba(55, 65, 81, 0.3);
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: calc(100vh - 160px);
+  }
+
+  // ── Left sidebar ──
   &__sidebar {
-    position: sticky;
-    top: 16px;
+    width: 280px;
+    flex-shrink: 0;
+    border-right: 1px solid rgba(55, 65, 81, 0.3);
+    display: flex;
+    flex-direction: column;
+  }
+
+  &__sidebar-header {
+    padding: 14px 16px 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #e5e7eb;
+  }
+
+  &__sidebar-search {
+    padding: 0 12px 8px;
   }
 
   &__space-list {
-    max-height: calc(100vh - 300px);
+    flex: 1;
     overflow-y: auto;
+  }
+
+  &__space-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: all 150ms ease;
+
+    &:hover {
+      color: #e5e7eb;
+      background-color: rgba(59, 130, 246, 0.06);
+    }
+
+    &--active {
+      color: #e5e7eb;
+      background-color: rgba(59, 130, 246, 0.12);
+    }
+  }
+
+  &__space-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__space-empty {
+    padding: 16px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 13px;
+  }
+
+  // ── Right main panel ──
+  &__main {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    max-height: calc(100vh - 160px);
+  }
+
+  &__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    text-align: center;
+    color: #6b7280;
+  }
+
+  &__main-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(55, 65, 81, 0.3);
+    color: #e5e7eb;
+    font-size: 15px;
+  }
+
+  &__tables {
+    padding: 16px 20px;
+  }
+}
+
+// Responsive: stack on small screens
+@media (max-width: 960px) {
+  .roles-view {
+    &__content {
+      flex-direction: column;
+      min-height: auto;
+    }
+
+    &__sidebar {
+      width: 100%;
+      border-right: none;
+      border-bottom: 1px solid rgba(55, 65, 81, 0.3);
+    }
+
+    &__space-list {
+      max-height: 200px;
+    }
+
+    &__main {
+      max-height: none;
+    }
   }
 }
 </style>

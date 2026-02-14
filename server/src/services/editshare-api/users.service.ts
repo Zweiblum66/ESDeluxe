@@ -1,7 +1,14 @@
 import { getEsApiClient } from './client.js';
 import { logger } from '../../utils/logger.js';
 import { ApiError, NotFoundError } from '../../utils/errors.js';
-import type { IUser, IUserSpaceAccess, SpaceAccessType } from '../../../../shared/types/user.js';
+import type { IUser, IUserSpaceAccess, SpaceAccessType, IRenameUserResult } from '../../../../shared/types/user.js';
+import * as esGroups from './groups.service.js';
+import * as esSpaces from './spaces.service.js';
+import {
+  getUserPermissionOverrides,
+  removeUserPermissionOverrides,
+  setUserPermissionOverride,
+} from '../user-permission-override.store.js';
 
 /**
  * Raw user detail from Storage API v1
@@ -325,4 +332,116 @@ export async function addUserToGroups(username: string, groups: string[]): Promi
     logger.error({ err, username, groups }, `Failed to add user ${username} to groups`);
     throw new ApiError(`Failed to add user '${username}' to groups`);
   }
+}
+
+/**
+ * Renames a user by creating a new user and restoring all memberships.
+ * EditShare has no native rename — this is a delete + recreate orchestration.
+ *
+ * Steps:
+ *  1. Verify old user exists
+ *  2. Collect groups, spaces (with access types), and permission overrides
+ *  3. Create new user with provided password
+ *  4. Restore group memberships
+ *  5. Restore space access (with correct readonly flag)
+ *  6. Migrate local permission overrides from old → new username
+ *  7. Delete old user
+ *  8. Invalidate cache
+ */
+export async function renameUser(
+  oldUsername: string,
+  newUsername: string,
+  password: string,
+): Promise<IRenameUserResult> {
+  const warnings: string[] = [];
+
+  // 1. Verify old user exists
+  await getUser(oldUsername);
+
+  // 2. Collect current state
+  const [groups, spaces] = await Promise.all([
+    getUserGroups(oldUsername),
+    getUserSpaces(oldUsername),
+  ]);
+
+  // Also collect local permission overrides
+  const overrides = getUserPermissionOverrides(oldUsername);
+
+  logger.info(
+    { oldUsername, newUsername, groups: groups.length, spaces: spaces.length, overrides: overrides.length },
+    'Rename user: collected current state',
+  );
+
+  // 3. Create new user
+  await createUser(newUsername, password);
+
+  // 4. Restore group memberships
+  const groupsRestored: string[] = [];
+  for (const group of groups) {
+    try {
+      await esGroups.addUserToGroup(group, newUsername);
+      groupsRestored.push(group);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      warnings.push(`Failed to restore group '${group}': ${msg}`);
+      logger.warn({ err, group, newUsername }, `Rename: failed to restore group membership`);
+    }
+  }
+
+  // 5. Restore space access
+  let spacesRestored = 0;
+  for (const space of spaces) {
+    try {
+      const isReadonly = space.accessType === 'readonly';
+      await esSpaces.addUserToSpace(space.spaceName, newUsername, isReadonly);
+      spacesRestored++;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      warnings.push(`Failed to restore space '${space.spaceName}': ${msg}`);
+      logger.warn({ err, spaceName: space.spaceName, newUsername }, `Rename: failed to restore space access`);
+    }
+  }
+
+  // 6. Migrate local permission overrides
+  if (overrides.length > 0) {
+    for (const override of overrides) {
+      try {
+        setUserPermissionOverride(override.spaceName, newUsername, override.accessType);
+      } catch (err: unknown) {
+        warnings.push(`Failed to migrate permission override for space '${override.spaceName}'`);
+        logger.warn({ err, spaceName: override.spaceName }, 'Rename: failed to migrate permission override');
+      }
+    }
+    // Remove old user's overrides
+    try {
+      removeUserPermissionOverrides(oldUsername);
+    } catch (err: unknown) {
+      warnings.push('Failed to clean up old permission overrides');
+      logger.warn({ err, oldUsername }, 'Rename: failed to remove old permission overrides');
+    }
+  }
+
+  // 7. Delete old user
+  try {
+    await deleteUser(oldUsername);
+  } catch (err: unknown) {
+    // Critical — new user already exists but old wasn't deleted
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    warnings.push(`CRITICAL: Failed to delete old user '${oldUsername}': ${msg}. Both users may now exist.`);
+    logger.error({ err, oldUsername }, 'Rename: CRITICAL - failed to delete old user');
+  }
+
+  // 8. Invalidate cache
+  invalidateUserListCache();
+
+  const result: IRenameUserResult = {
+    oldUsername,
+    newUsername,
+    groupsRestored,
+    spacesRestored,
+    warnings,
+  };
+
+  logger.info(result, 'User rename completed');
+  return result;
 }

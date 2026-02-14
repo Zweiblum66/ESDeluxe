@@ -6,7 +6,7 @@ import * as esUsers from '../services/editshare-api/users.service.js';
 import * as ldapUsers from '../services/ldap/users.service.js';
 import { getUiGroups } from '../services/ldap/groups.service.js';
 import { hasUserPermissionOverride } from '../services/user-permission-override.store.js';
-import type { IUser, IUserDetail } from '../../../shared/types/user.js';
+import type { IUser, IUserDetail, IBulkOperationResult } from '../../../shared/types/user.js';
 
 /** Extract username param safely (Express v5 params can be string | string[]) */
 function getUsername(req: Request): string {
@@ -189,4 +189,90 @@ export async function addUserToGroups(req: Request, res: Response): Promise<void
   await esUsers.addUserToGroups(username, groups);
 
   res.json({ data: { username, groups, message: 'User added to groups successfully' } });
+}
+
+/**
+ * POST /api/v1/users/bulk
+ * Bulk create users. Body: { users: [{ username, password }] }
+ */
+export async function bulkCreateUsers(req: Request, res: Response): Promise<void> {
+  const { users } = req.body;
+
+  if (!Array.isArray(users) || users.length === 0) {
+    throw new ValidationError('Users must be a non-empty array');
+  }
+
+  if (users.length > 100) {
+    throw new ValidationError('Maximum 100 users per bulk operation');
+  }
+
+  const result: IBulkOperationResult = { succeeded: 0, failed: 0, errors: {} };
+
+  // Process sequentially to avoid overwhelming the ES API
+  for (const entry of users) {
+    const username = typeof entry.username === 'string' ? entry.username.trim().toLowerCase() : '';
+    const password = typeof entry.password === 'string' ? entry.password : '';
+
+    if (!username || username.length === 0) {
+      result.failed++;
+      result.errors[entry.username ?? '(empty)'] = 'Username is required';
+      continue;
+    }
+
+    if (password.length < 4) {
+      result.failed++;
+      result.errors[username] = 'Password must be at least 4 characters';
+      continue;
+    }
+
+    try {
+      await esUsers.createUser(username, password);
+      result.succeeded++;
+    } catch (err: unknown) {
+      result.failed++;
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      result.errors[username] = msg;
+      logger.warn({ err, username }, 'Bulk create: failed to create user');
+    }
+  }
+
+  // Invalidate cache once after all operations
+  esUsers.invalidateUserListCache();
+
+  logger.info({ succeeded: result.succeeded, failed: result.failed }, 'Bulk user creation completed');
+  res.json({ data: result });
+}
+
+/**
+ * POST /api/v1/users/:username/rename
+ * Rename a user (delete + recreate with preserved memberships).
+ * Body: { newUsername, password }
+ */
+export async function renameUser(req: Request, res: Response): Promise<void> {
+  const oldUsername = getUsername(req);
+  const { newUsername, password } = req.body;
+
+  if (!newUsername || typeof newUsername !== 'string' || newUsername.trim().length === 0) {
+    throw new ValidationError('New username is required');
+  }
+  if (!password || typeof password !== 'string' || password.length < 4) {
+    throw new ValidationError('Password must be at least 4 characters');
+  }
+
+  const cleanNewUsername = newUsername.trim().toLowerCase();
+  if (cleanNewUsername === oldUsername.toLowerCase()) {
+    throw new ValidationError('New username must be different from current username');
+  }
+
+  const result = await esUsers.renameUser(oldUsername, cleanNewUsername, password);
+
+  logger.info({
+    oldUsername,
+    newUsername: cleanNewUsername,
+    groupsRestored: result.groupsRestored.length,
+    spacesRestored: result.spacesRestored,
+    warnings: result.warnings.length,
+  }, 'User renamed successfully');
+
+  res.json({ data: result });
 }

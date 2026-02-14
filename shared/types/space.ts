@@ -51,3 +51,19 @@ export interface IUpdateSpaceRequest {
   quota?: number;
   isPublic?: boolean;
 }
+
+/** Clone space request */
+export interface ICloneSpaceRequest {
+  newName: string;
+  copyUsers?: boolean;
+  copyGroups?: boolean;
+}
+
+/** Result of a space clone operation */
+export interface ICloneSpaceResult {
+  sourceName: string;
+  newName: string;
+  usersCopied: number;
+  groupsCopied: number;
+  warnings: string[];
+}
