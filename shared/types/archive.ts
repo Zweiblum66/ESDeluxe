@@ -47,6 +47,7 @@ export interface IArchiveLocation {
   enabled: boolean;
   totalSize: number;
   fileCount: number;
+  priority: number;
   lastActivityAt?: number;
   createdAt: number;
   updatedAt: number;
@@ -58,6 +59,7 @@ export interface ICreateArchiveLocationRequest {
   type: ArchiveLocationType;
   config: ArchiveLocationConfig;
   description?: string;
+  priority?: number;
 }
 
 /** Request to update an archive location */
@@ -66,6 +68,7 @@ export interface IUpdateArchiveLocationRequest {
   config?: ArchiveLocationConfig;
   description?: string;
   enabled?: boolean;
+  priority?: number;
 }
 
 // ──────────────────────────────────────────────

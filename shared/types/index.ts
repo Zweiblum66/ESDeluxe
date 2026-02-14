@@ -11,3 +11,5 @@ export * from './tiering';
 export * from './archive';
 export * from './trash';
 export * from './roles';
+export * from './asset-catalog';
+export * from './guardian';

@@ -37,6 +37,30 @@ export const envSchema = z.object({
   TRASH_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   TRASH_PURGE_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),
 
+  // Asset Catalog
+  CATALOG_SCAN_ENABLED: booleanString.default('true'),
+  CATALOG_SCAN_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),
+  CATALOG_MAX_CHECKSUM_FILES_PER_SCAN: z.coerce.number().int().positive().default(200),
+  CATALOG_DATA_PATH: z.string().default('/efs/efs_1/editshare/catalog'),
+
+  // QoS History & Scheduling
+  QOS_HISTORY_ENABLED: booleanString.default('true'),
+  QOS_HISTORY_POLL_INTERVAL_SECONDS: z.coerce.number().int().positive().default(30),
+  QOS_HISTORY_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
+
+  // Guardian Log Receiver (EFS Control / OpenSearch log forwarding)
+  GUARDIAN_RECEIVER_ENABLED: booleanString.default('false'),
+  GUARDIAN_RECEIVER_PORT: z.coerce.number().int().positive().default(15750),
+  GUARDIAN_RECEIVER_PROTOCOL: z.enum(['logstash', 'elasticsearch', 'syslog']).default('elasticsearch'),
+  GUARDIAN_RECEIVER_USER: z.string().default('guardian'),
+  GUARDIAN_RECEIVER_PASSWORD: z.string().default('guardian15750'),
+  GUARDIAN_EVENT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  GUARDIAN_WORKER_MODE: z.enum(['local', 'queue']).default('local'),
+  GUARDIAN_QUEUE_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
+
+  // Worker API
+  WORKER_API_KEY: z.string().default(''),
+
   // Application
   APP_PORT: z.coerce.number().int().positive().default(15700),
   APP_SECRET: z.string().min(16, 'APP_SECRET must be at least 16 characters'),

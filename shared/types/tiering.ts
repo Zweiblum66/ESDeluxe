@@ -107,6 +107,12 @@ export interface ITieringExecutionLog {
   bytesProcessed: number;
   errors: string[];
   status: 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Total candidate files (known after enumeration phase) */
+  totalFiles?: number;
+  /** Relative path of the file currently being processed */
+  currentFile?: string;
+  /** Timestamp of last progress update */
+  updatedAt?: number;
 }
 
 /** Scheduler status information */
@@ -116,4 +122,28 @@ export interface ITieringSchedulerStatus {
   activeRuleCount: number;
   lastCheckAt?: number;
   nextCheckAt?: number;
+}
+
+/** Live progress info for an in-flight tiering execution */
+export type TieringProgressStatus = 'enumerating' | 'processing' | 'completed' | 'failed';
+
+export interface ITieringProgress {
+  logId: number;
+  ruleId: number;
+  ruleName: string;
+  status: TieringProgressStatus;
+  /** Total candidate files (known after enumeration phase) */
+  totalFiles: number;
+  filesProcessed: number;
+  filesSkipped: number;
+  filesFailed: number;
+  bytesProcessed: number;
+  /** Relative path of the file currently being processed */
+  currentFile: string | null;
+  /** Current space being processed */
+  currentSpace: string | null;
+  startedAt: number;
+  updatedAt: number;
+  /** Percent complete: 0-100 */
+  percentComplete: number;
 }

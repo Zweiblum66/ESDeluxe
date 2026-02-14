@@ -4,8 +4,9 @@ import * as tieringController from '../controllers/tiering.controller.js';
 
 const router = Router();
 
-// Scheduler status
+// Scheduler status & progress
 router.get('/status', asyncHandler(tieringController.getSchedulerStatus));
+router.get('/progress', asyncHandler(tieringController.getProgress));
 
 // Recent logs across all rules
 router.get('/logs', asyncHandler(tieringController.getRecentLogs));

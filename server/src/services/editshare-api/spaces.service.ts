@@ -1,8 +1,12 @@
 import { getEsApiClient } from './client.js';
 import { logger } from '../../utils/logger.js';
 import { ApiError, NotFoundError } from '../../utils/errors.js';
-import { getSpaceGroupAccessTypes } from '../group-access.store.js';
-import type { SpaceType, ISpace, ISpaceUserAccess, ISpaceGroupAccess } from '../../../../shared/types/space.js';
+import { getSpaceGroupAccessTypes, setGroupAccessType } from '../group-access.store.js';
+import {
+  getSpacePermissionOverrides,
+  setUserPermissionOverride,
+} from '../user-permission-override.store.js';
+import type { SpaceType, ISpace, ISpaceUserAccess, ISpaceGroupAccess, ICloneSpaceResult } from '../../../../shared/types/space.js';
 
 /**
  * Raw space detail from Storage API v1
@@ -364,4 +368,110 @@ export async function removeGroupFromSpace(spaceName: string, groupName: string)
     );
     throw new ApiError(`Failed to remove group '${groupName}' from space '${spaceName}'`);
   }
+}
+
+/**
+ * Clones a space by creating a new space with the same type/quota
+ * and optionally copying user and group access.
+ *
+ * Steps:
+ *  1. Get source space detail (type, quota)
+ *  2. Create new space with same subtype and quota
+ *  3. If copyUsers: copy user access (with same readonly flags)
+ *  4. If copyGroups: copy group access (with same readonly flags + local store entries)
+ *  5. Copy local permission overrides if users were copied
+ */
+export async function cloneSpace(
+  sourceName: string,
+  newName: string,
+  copyUsers: boolean,
+  copyGroups: boolean,
+): Promise<ICloneSpaceResult> {
+  const warnings: string[] = [];
+
+  // 1. Get source space detail
+  const sourceSpace = await getSpace(sourceName);
+
+  logger.info(
+    { sourceName, newName, type: sourceSpace.type, quota: sourceSpace.quota, copyUsers, copyGroups },
+    'Clone space: starting',
+  );
+
+  // 2. Create new space with same type and quota
+  // Map our SpaceType back to the ES API subtype string
+  await createSpace(newName, sourceSpace.type, sourceSpace.quota);
+
+  // 3. Copy user access
+  let usersCopied = 0;
+  if (copyUsers) {
+    try {
+      const users = await getSpaceUsers(sourceName);
+      for (const user of users) {
+        try {
+          await addUserToSpace(newName, user.username, user.readonly);
+          usersCopied++;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          warnings.push(`Failed to copy user '${user.username}': ${msg}`);
+          logger.warn({ err, username: user.username, newName }, 'Clone space: failed to copy user');
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      warnings.push(`Failed to fetch source space users: ${msg}`);
+      logger.warn({ err, sourceName }, 'Clone space: failed to fetch users');
+    }
+
+    // Copy permission overrides
+    try {
+      const overrides = getSpacePermissionOverrides(sourceName);
+      for (const override of overrides) {
+        try {
+          setUserPermissionOverride(newName, override.username, override.accessType);
+        } catch (err: unknown) {
+          warnings.push(`Failed to copy permission override for '${override.username}'`);
+          logger.warn({ err, username: override.username }, 'Clone space: failed to copy override');
+        }
+      }
+    } catch (err: unknown) {
+      warnings.push('Failed to copy permission overrides');
+      logger.warn({ err }, 'Clone space: failed to copy overrides');
+    }
+  }
+
+  // 4. Copy group access
+  let groupsCopied = 0;
+  if (copyGroups) {
+    try {
+      const groups = await getSpaceGroups(sourceName);
+      for (const group of groups) {
+        try {
+          const isReadonly = group.accessType === 'readonly';
+          await addGroupToSpace(newName, group.groupName, isReadonly);
+          // Also copy the local group-access store entry
+          await setGroupAccessType(newName, group.groupName, group.accessType);
+          groupsCopied++;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          warnings.push(`Failed to copy group '${group.groupName}': ${msg}`);
+          logger.warn({ err, groupName: group.groupName, newName }, 'Clone space: failed to copy group');
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      warnings.push(`Failed to fetch source space groups: ${msg}`);
+      logger.warn({ err, sourceName }, 'Clone space: failed to fetch groups');
+    }
+  }
+
+  const result: ICloneSpaceResult = {
+    sourceName,
+    newName,
+    usersCopied,
+    groupsCopied,
+    warnings,
+  };
+
+  logger.info(result, 'Space clone completed');
+  return result;
 }

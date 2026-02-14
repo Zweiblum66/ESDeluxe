@@ -44,3 +44,59 @@ export interface IBandwidthRecord {
   bytesPerSecond: number;
   storageNodeGroup: string;
 }
+
+/** Saved QoS profile */
+export interface IQosProfile {
+  id: number;
+  name: string;
+  storageNodeGroup: string;
+  config: Omit<IQosConfig, 'storageNodeGroup'>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** QoS schedule for automated profile activation */
+export interface IQosSchedule {
+  id: number;
+  profileId: number;
+  cronExpression: string;
+  enabled: boolean;
+  lastRunAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Alert threshold definition */
+export interface IQosAlertThreshold {
+  id: number;
+  storageNodeGroup: string;
+  poolName: string | null;
+  thresholdBytesPerSec: number;
+  direction: 'above' | 'below';
+  enabled: boolean;
+  cooldownMinutes: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Alert event (triggered threshold breach) */
+export interface IQosAlertEvent {
+  id: number;
+  thresholdId: number;
+  triggeredAt: number;
+  actualBytesPerSec: number;
+  acknowledged: boolean;
+  acknowledgedAt: number | null;
+}
+
+/** QoS scheduler status */
+export interface IQosSchedulerStatus {
+  enabled: boolean;
+  running: boolean;
+  lastPollAt: number | undefined;
+  nextPollAt: number | undefined;
+  pollCount: number;
+  errorCount: number;
+  pollIntervalSeconds: number;
+  retentionDays: number;
+}

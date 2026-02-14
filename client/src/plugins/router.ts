@@ -144,6 +144,19 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/automation',
+    name: 'automation',
+    component: () => import('@/views/automation/AutomationView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Automation',
+      requiresAuth: true,
+      requiresAdmin: true,
+      section: 'management',
+      icon: 'mdi-robot',
+    },
+  },
+  {
     path: '/tiering',
     name: 'tiering',
     component: () => import('@/views/tiering/TieringView.vue'),
@@ -193,6 +206,18 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/catalog',
+    name: 'catalog',
+    component: () => import('@/views/asset-catalog/AssetCatalogView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Asset Catalog',
+      requiresAuth: true,
+      section: 'management',
+      icon: 'mdi-filmstrip-box-multiple',
+    },
+  },
+  {
     path: '/archive',
     name: 'archive',
     component: () => import('@/views/archive/ArchiveView.vue'),
@@ -214,6 +239,19 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       section: 'management',
       icon: 'mdi-delete',
+    },
+  },
+  {
+    path: '/guardian',
+    name: 'guardian',
+    component: () => import('@/views/guardian/GuardianView.vue'),
+    meta: {
+      layout: 'app',
+      title: 'Auditing & Monitoring',
+      requiresAuth: true,
+      requiresAdmin: true,
+      section: 'management',
+      icon: 'mdi-shield-search',
     },
   },
 ];

@@ -7,6 +7,7 @@ import type {
   IUpdateTieringRuleRequest,
   ITieringExecutionLog,
   ITieringSchedulerStatus,
+  ITieringProgress,
 } from '@shared/types';
 
 export const useTieringStore = defineStore('tiering', () => {
@@ -136,12 +137,40 @@ export const useTieringStore = defineStore('tiering', () => {
     }
   }
 
+  // --- Live Progress ---
+
+  const progress = ref<ITieringProgress | null>(null);
+  let progressPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function fetchProgress(): Promise<void> {
+    try {
+      const response = await api.get('/api/v1/tiering/progress');
+      progress.value = response.data.data;
+    } catch {
+      progress.value = null;
+    }
+  }
+
+  function startProgressPolling(): void {
+    if (progressPollTimer) return;
+    fetchProgress();
+    progressPollTimer = setInterval(fetchProgress, 2000);
+  }
+
+  function stopProgressPolling(): void {
+    if (progressPollTimer) {
+      clearInterval(progressPollTimer);
+      progressPollTimer = null;
+    }
+  }
+
   return {
     rules,
     selectedRule,
     ruleLogs,
     recentLogs,
     schedulerStatus,
+    progress,
     isLoading,
     isDetailLoading,
     error,
@@ -154,5 +183,8 @@ export const useTieringStore = defineStore('tiering', () => {
     fetchRuleLogs,
     fetchRecentLogs,
     fetchSchedulerStatus,
+    fetchProgress,
+    startProgressPolling,
+    stopProgressPolling,
   };
 });

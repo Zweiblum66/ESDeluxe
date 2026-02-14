@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 import { useArchiveStore } from '@/stores/archive.store';
 import ArchiveLocationDialog from './ArchiveLocationDialog.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
@@ -57,124 +57,127 @@ async function testConnection(location: IArchiveLocation): Promise<void> {
     delete testResults.value[location.id];
   }, 5000);
 }
+
+function locationIcon(type: string): string {
+  switch (type) {
+    case 'local': return 'mdi-harddisk';
+    case 'smb': return 'mdi-server-network';
+    case 's3': return 'mdi-cloud';
+    default: return 'mdi-tape-drive';
+  }
+}
 </script>
 
 <template>
-  <div>
-    <div class="d-flex align-center mb-4">
-      <div class="text-h6 font-weight-medium">Storage Locations</div>
-      <v-spacer />
-      <v-btn color="deep-purple" variant="flat" size="small" @click="openCreate">
-        <v-icon start>mdi-plus</v-icon>
+  <div class="locations-panel">
+    <div class="locations-panel__header">
+      <div class="locations-panel__title">Storage Locations</div>
+      <v-btn color="primary" size="small" @click="openCreate">
+        <v-icon start size="16">mdi-plus</v-icon>
         Add Location
       </v-btn>
     </div>
 
-    <v-row v-if="store.locations.length > 0">
-      <v-col
+    <div v-if="store.locations.length > 0" class="locations-panel__grid">
+      <div
         v-for="location in store.locations"
         :key="location.id"
-        cols="12"
-        sm="6"
-        lg="4"
+        class="locations-panel__card"
       >
-        <v-card class="bg-grey-darken-4 h-100" variant="outlined">
-          <v-card-title class="d-flex align-center pa-3 pb-1">
-            <v-icon
-              :color="location.enabled ? 'deep-purple' : 'grey'"
-              class="mr-2"
-              size="20"
-            >
-              {{ location.type === 'local' ? 'mdi-harddisk' : location.type === 'smb' ? 'mdi-server-network' : location.type === 's3' ? 'mdi-cloud' : 'mdi-tape-drive' }}
-            </v-icon>
-            <span class="text-body-1 font-weight-medium text-truncate">{{ location.name }}</span>
-            <v-spacer />
-            <v-chip
-              :color="location.enabled ? 'success' : 'grey'"
-              size="x-small"
-              variant="tonal"
-            >
-              {{ location.enabled ? 'Active' : 'Disabled' }}
-            </v-chip>
-          </v-card-title>
+        <div class="locations-panel__card-header">
+          <v-icon
+            :color="location.enabled ? 'deep-purple' : 'grey'"
+            class="mr-2"
+            size="20"
+          >
+            {{ locationIcon(location.type) }}
+          </v-icon>
+          <span class="locations-panel__card-name">{{ location.name }}</span>
+          <v-spacer />
+          <v-chip
+            :color="location.enabled ? 'success' : 'grey'"
+            size="x-small"
+            variant="tonal"
+          >
+            {{ location.enabled ? 'Active' : 'Disabled' }}
+          </v-chip>
+        </div>
 
-          <v-card-text class="pa-3 pt-1">
-            <div v-if="location.description" class="text-caption text-grey mb-2">
-              {{ location.description }}
+        <div class="locations-panel__card-body">
+          <div v-if="location.description" class="locations-panel__description">
+            {{ location.description }}
+          </div>
+
+          <div class="locations-panel__stats">
+            <div>
+              <span class="locations-panel__stats-label">Files:</span>
+              <span class="locations-panel__stats-value">{{ location.fileCount.toLocaleString() }}</span>
             </div>
-
-            <div class="d-flex gap-4 text-body-2 mb-2">
-              <div>
-                <span class="text-grey-lighten-1">Files:</span>
-                <span class="ml-1 font-weight-medium">{{ location.fileCount.toLocaleString() }}</span>
-              </div>
-              <div>
-                <span class="text-grey-lighten-1">Size:</span>
-                <span class="ml-1 font-weight-medium">{{ formatSize(location.totalSize) }}</span>
-              </div>
+            <div>
+              <span class="locations-panel__stats-label">Size:</span>
+              <span class="locations-panel__stats-value">{{ formatSize(location.totalSize) }}</span>
             </div>
+          </div>
 
-            <div class="text-caption text-grey">
-              Type: {{ location.type.toUpperCase() }}
-            </div>
+          <div class="locations-panel__type">
+            Type: {{ location.type.toUpperCase() }}
+            <span class="ml-3">Priority: {{ location.priority }}</span>
+          </div>
 
-            <!-- Test result -->
-            <v-alert
-              v-if="testResults[location.id]"
-              :type="testResults[location.id].ok ? 'success' : 'error'"
-              variant="tonal"
-              density="compact"
-              class="mt-2"
-              closable
-              @click:close="delete testResults[location.id]"
-            >
-              {{ testResults[location.id].message }}
-            </v-alert>
-          </v-card-text>
+          <!-- Test result -->
+          <v-alert
+            v-if="testResults[location.id]"
+            :type="testResults[location.id].ok ? 'success' : 'error'"
+            variant="tonal"
+            density="compact"
+            class="mt-2"
+            closable
+            @click:close="delete testResults[location.id]"
+          >
+            {{ testResults[location.id].message }}
+          </v-alert>
+        </div>
 
-          <v-divider />
+        <div class="locations-panel__card-actions">
+          <v-btn
+            variant="text"
+            size="small"
+            :color="location.enabled ? 'warning' : 'success'"
+            @click="toggleEnabled(location)"
+          >
+            {{ location.enabled ? 'Disable' : 'Enable' }}
+          </v-btn>
+          <v-btn
+            variant="text"
+            size="small"
+            color="info"
+            :loading="testingId === location.id"
+            @click="testConnection(location)"
+          >
+            Test
+          </v-btn>
+          <v-spacer />
+          <v-btn variant="text" size="small" @click="openEdit(location)">
+            <v-icon size="18">mdi-pencil</v-icon>
+          </v-btn>
+          <v-btn variant="text" size="small" color="error" @click="confirmDelete(location)">
+            <v-icon size="18">mdi-delete</v-icon>
+          </v-btn>
+        </div>
+      </div>
+    </div>
 
-          <v-card-actions class="pa-2">
-            <v-btn
-              variant="text"
-              size="small"
-              :color="location.enabled ? 'warning' : 'success'"
-              @click="toggleEnabled(location)"
-            >
-              {{ location.enabled ? 'Disable' : 'Enable' }}
-            </v-btn>
-            <v-btn
-              variant="text"
-              size="small"
-              color="info"
-              :loading="testingId === location.id"
-              @click="testConnection(location)"
-            >
-              Test
-            </v-btn>
-            <v-spacer />
-            <v-btn variant="text" size="small" @click="openEdit(location)">
-              <v-icon size="18">mdi-pencil</v-icon>
-            </v-btn>
-            <v-btn variant="text" size="small" color="error" @click="confirmDelete(location)">
-              <v-icon size="18">mdi-delete</v-icon>
-            </v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-col>
-    </v-row>
-
-    <v-card v-else class="bg-grey-darken-4 pa-8 text-center" variant="outlined">
+    <div v-else class="locations-panel__empty">
       <v-icon size="48" color="grey" class="mb-3">mdi-archive-off</v-icon>
-      <div class="text-body-1 text-grey mb-2">No archive locations configured</div>
-      <div class="text-body-2 text-grey-darken-1 mb-4">
+      <div class="locations-panel__empty-title">No archive locations configured</div>
+      <div class="locations-panel__empty-subtitle">
         Create an archive location to start archiving files
       </div>
-      <v-btn color="deep-purple" variant="flat" @click="openCreate">
+      <v-btn color="primary" class="mt-4" @click="openCreate">
         <v-icon start>mdi-plus</v-icon>
         Add Location
       </v-btn>
-    </v-card>
+    </div>
 
     <ArchiveLocationDialog
       v-model="showDialog"
@@ -192,3 +195,113 @@ async function testConnection(location: IArchiveLocation): Promise<void> {
     />
   </div>
 </template>
+
+<style scoped lang="scss">
+.locations-panel {
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  &__title {
+    font-size: 16px;
+    font-weight: 500;
+    color: #e5e7eb;
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+
+    @include phone {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+  }
+
+  &__card {
+    background-color: #22252d;
+    border: 1px solid rgba(55, 65, 81, 0.3);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  &__card-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px 4px;
+  }
+
+  &__card-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e5e7eb;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__card-body {
+    padding: 4px 16px 12px;
+    flex: 1;
+  }
+
+  &__description {
+    font-size: 12px;
+    color: #6b7280;
+    margin-bottom: 8px;
+  }
+
+  &__stats {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+
+  &__stats-label {
+    color: #6b7280;
+  }
+
+  &__stats-value {
+    color: #e5e7eb;
+    font-weight: 500;
+    margin-left: 4px;
+  }
+
+  &__type {
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  &__card-actions {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-top: 1px solid rgba(55, 65, 81, 0.3);
+  }
+
+  &__empty {
+    background-color: #22252d;
+    border: 1px solid rgba(55, 65, 81, 0.3);
+    border-radius: 8px;
+    padding: 48px;
+    text-align: center;
+  }
+
+  &__empty-title {
+    font-size: 14px;
+    color: #9ca3af;
+    margin-bottom: 4px;
+  }
+
+  &__empty-subtitle {
+    font-size: 13px;
+    color: #6b7280;
+  }
+}
+</style>

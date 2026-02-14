@@ -30,3 +30,22 @@ export interface IUpdateGroupMembersRequest {
   add?: string[];
   remove?: string[];
 }
+
+/** Bulk add users to group request */
+export interface IBulkAddUsersToGroupRequest {
+  usernames: string[];
+}
+
+/** Rename group request */
+export interface IRenameGroupRequest {
+  newName: string;
+}
+
+/** Result of a group rename operation */
+export interface IRenameGroupResult {
+  oldName: string;
+  newName: string;
+  membersRestored: number;
+  spacesRestored: number;
+  warnings: string[];
+}

@@ -222,7 +222,7 @@ export async function setQuota(
  * Output format: "/efs/.../path: goal_name"
  */
 export async function getGoal(absPath: string): Promise<string> {
-  const stdout = await execEfsCommand('efs-getgoal', [absPath]);
+  const stdout = await execEfsCommand('efs-getgoal', [absPath], { sudo: true });
   const lastColon = stdout.lastIndexOf(':');
   if (lastColon === -1) return stdout.trim();
   return stdout.slice(lastColon + 1).trim();
@@ -245,7 +245,7 @@ export async function setGoal(
   args.push(goalName, ...paths);
 
   const timeout = recursive ? 120_000 : 30_000;
-  await execEfsCommand('efs-setgoal', args, { timeout });
+  await execEfsCommand('efs-setgoal', args, { timeout, sudo: true });
 }
 
 /**

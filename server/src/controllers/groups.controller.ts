@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { ValidationError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
 import { isSystemUser } from '../services/ldap/constants.js';
 import * as esGroups from '../services/editshare-api/groups.service.js';
 import { getUiGroups } from '../services/ldap/groups.service.js';
@@ -190,4 +191,78 @@ export async function getGroupSpaces(req: Request, res: Response): Promise<void>
   }));
 
   res.json({ data: spaces });
+}
+
+/**
+ * POST /api/v1/groups/:name/users/bulk
+ * Bulk add users to a group. Body: { usernames: string[] }
+ */
+export async function bulkAddUsersToGroup(req: Request, res: Response): Promise<void> {
+  const name = getGroupName(req);
+  const { usernames } = req.body;
+
+  if (!Array.isArray(usernames) || usernames.length === 0) {
+    throw new ValidationError('Usernames must be a non-empty array');
+  }
+
+  if (usernames.length > 100) {
+    throw new ValidationError('Maximum 100 users per bulk operation');
+  }
+
+  let succeeded = 0;
+  let failed = 0;
+  const errors: Record<string, string> = {};
+
+  for (const raw of usernames) {
+    const username = typeof raw === 'string' ? raw.trim() : '';
+    if (!username) {
+      failed++;
+      errors[String(raw) || '(empty)'] = 'Invalid username';
+      continue;
+    }
+
+    try {
+      await esGroups.addUserToGroup(name, username);
+      succeeded++;
+    } catch (err: unknown) {
+      failed++;
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      errors[username] = msg;
+      logger.warn({ err, groupName: name, username }, 'Bulk add to group: failed');
+    }
+  }
+
+  logger.info({ groupName: name, succeeded, failed }, 'Bulk add users to group completed');
+  res.json({ data: { succeeded, failed, errors } });
+}
+
+/**
+ * POST /api/v1/groups/:name/rename
+ * Rename a group (delete + recreate with preserved memberships).
+ * Body: { newName }
+ */
+export async function renameGroup(req: Request, res: Response): Promise<void> {
+  const oldName = getGroupName(req);
+  const { newName } = req.body;
+
+  if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
+    throw new ValidationError('New group name is required');
+  }
+
+  const cleanNewName = newName.trim().toLowerCase();
+  if (cleanNewName === oldName.toLowerCase()) {
+    throw new ValidationError('New name must be different from current name');
+  }
+
+  const result = await esGroups.renameGroup(oldName, cleanNewName);
+
+  logger.info({
+    oldName,
+    newName: cleanNewName,
+    membersRestored: result.membersRestored,
+    spacesRestored: result.spacesRestored,
+    warnings: result.warnings.length,
+  }, 'Group renamed successfully');
+
+  res.json({ data: result });
 }

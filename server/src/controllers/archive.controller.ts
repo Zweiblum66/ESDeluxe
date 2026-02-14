@@ -84,7 +84,8 @@ export async function createLocation(req: Request, res: Response): Promise<void>
     if (!config.secretAccessKey) throw new ValidationError('secretAccessKey is required for S3 locations');
   }
 
-  const location = archiveStore.createLocation({ name, type, config, description });
+  const priority = typeof req.body.priority === 'number' ? req.body.priority : undefined;
+  const location = archiveStore.createLocation({ name, type, config, description, priority });
   res.status(201).json({ data: maskSecrets(location) });
 }
 

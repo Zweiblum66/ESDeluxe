@@ -7,4 +7,7 @@ const router = Router();
 // GET /health
 router.get('/health', asyncHandler(systemController.health));
 
+// GET /automation — combined status of all background services
+router.get('/automation', asyncHandler(systemController.getAutomationStatus));
+
 export default router;

@@ -202,3 +202,12 @@ export async function getSchedulerStatus(_req: Request, res: Response): Promise<
   const status = tieringScheduler.getSchedulerStatus();
   res.json({ data: status });
 }
+
+// ──────────────────────────────────────────────
+// Live progress
+// ──────────────────────────────────────────────
+
+export async function getProgress(_req: Request, res: Response): Promise<void> {
+  const progress = tieringScheduler.getCurrentProgress();
+  res.json({ data: progress });
+}

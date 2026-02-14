@@ -70,7 +70,6 @@ const catalogHeaders = computed(() => {
     { title: '', key: 'actions', sortable: false, width: '100px' },
   ];
   if (responsive.isPhone.value) {
-    // Only show file, status, actions on phone
     return headers.filter(h => ['originalPath', 'status', 'actions'].includes(h.key));
   }
   if (responsive.isMobile.value) {
@@ -143,14 +142,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="archive-view">
     <PageHeader title="Archive Management" icon="mdi-archive">
       <template #subtitle>
         Manage archive locations and browse archived files
       </template>
     </PageHeader>
 
-    <v-tabs v-model="activeTab" class="mb-4" color="deep-purple" density="comfortable">
+    <v-tabs v-model="activeTab" class="archive-view__tabs mb-4" color="deep-purple" density="comfortable">
       <v-tab value="overview">
         <v-icon start size="18">mdi-chart-box</v-icon>
         Overview
@@ -168,102 +167,88 @@ onMounted(async () => {
     <!-- ═══════ Overview Tab ═══════ -->
     <div v-if="activeTab === 'overview'">
       <!-- Stats cards -->
-      <v-row class="mb-4">
-        <v-col cols="6" md="3">
-          <v-card class="bg-grey-darken-4 pa-4" variant="outlined">
-            <div class="text-caption text-grey mb-1">Total Archived Files</div>
-            <div class="text-h5 font-weight-bold">{{ totalFilesFormatted }}</div>
-          </v-card>
-        </v-col>
-        <v-col cols="6" md="3">
-          <v-card class="bg-grey-darken-4 pa-4" variant="outlined">
-            <div class="text-caption text-grey mb-1">Total Archive Size</div>
-            <div class="text-h5 font-weight-bold">{{ totalSizeFormatted }}</div>
-          </v-card>
-        </v-col>
-        <v-col cols="6" md="3">
-          <v-card class="bg-grey-darken-4 pa-4" variant="outlined">
-            <div class="text-caption text-grey mb-1">Locations</div>
-            <div class="text-h5 font-weight-bold">{{ store.locations.length }}</div>
-          </v-card>
-        </v-col>
-        <v-col cols="6" md="3">
-          <v-card class="bg-grey-darken-4 pa-4" variant="outlined">
-            <div class="text-caption text-grey mb-1">Active Locations</div>
-            <div class="text-h5 font-weight-bold">
-              {{ store.locations.filter(l => l.enabled).length }}
-            </div>
-          </v-card>
-        </v-col>
-      </v-row>
+      <div class="archive-view__stats-grid mb-4">
+        <div class="archive-view__stat-card">
+          <div class="archive-view__stat-label">Total Archived Files</div>
+          <div class="archive-view__stat-value">{{ totalFilesFormatted }}</div>
+        </div>
+        <div class="archive-view__stat-card">
+          <div class="archive-view__stat-label">Total Archive Size</div>
+          <div class="archive-view__stat-value">{{ totalSizeFormatted }}</div>
+        </div>
+        <div class="archive-view__stat-card">
+          <div class="archive-view__stat-label">Locations</div>
+          <div class="archive-view__stat-value">{{ store.locations.length }}</div>
+        </div>
+        <div class="archive-view__stat-card">
+          <div class="archive-view__stat-label">Active Locations</div>
+          <div class="archive-view__stat-value">
+            {{ store.locations.filter(l => l.enabled).length }}
+          </div>
+        </div>
+      </div>
 
       <!-- Per-location breakdown -->
       <div v-if="store.stats?.locationBreakdown?.length" class="mb-4">
-        <div class="text-subtitle-1 font-weight-medium mb-3">Location Breakdown</div>
-        <v-row>
-          <v-col
+        <div class="archive-view__section-title">Location Breakdown</div>
+        <div class="archive-view__breakdown-grid">
+          <div
             v-for="loc in store.stats.locationBreakdown"
             :key="loc.locationId"
-            cols="12"
-            sm="6"
-            lg="4"
+            class="archive-view__breakdown-card"
           >
-            <v-card class="bg-grey-darken-4 pa-3" variant="outlined">
-              <div class="d-flex align-center mb-2">
-                <v-icon size="18" color="deep-purple" class="mr-2">mdi-harddisk</v-icon>
-                <span class="font-weight-medium">{{ loc.locationName }}</span>
-                <v-spacer />
-                <v-chip
-                  :color="loc.enabled ? 'success' : 'grey'"
-                  size="x-small"
-                  variant="tonal"
-                >
-                  {{ loc.enabled ? 'Active' : 'Off' }}
-                </v-chip>
-              </div>
-              <div class="d-flex gap-4 text-body-2">
-                <div>{{ loc.fileCount.toLocaleString() }} files</div>
-                <div>{{ formatSize(loc.totalSize) }}</div>
-              </div>
-            </v-card>
-          </v-col>
-        </v-row>
+            <div class="d-flex align-center mb-2">
+              <v-icon size="18" color="deep-purple" class="mr-2">mdi-harddisk</v-icon>
+              <span class="archive-view__breakdown-name">{{ loc.locationName }}</span>
+              <v-spacer />
+              <v-chip
+                :color="loc.enabled ? 'success' : 'grey'"
+                size="x-small"
+                variant="tonal"
+              >
+                {{ loc.enabled ? 'Active' : 'Off' }}
+              </v-chip>
+            </div>
+            <div class="archive-view__breakdown-stats">
+              <div>{{ loc.fileCount.toLocaleString() }} files</div>
+              <div>{{ formatSize(loc.totalSize) }}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Recent activity -->
       <div v-if="store.stats?.recentActivity?.length">
-        <div class="text-subtitle-1 font-weight-medium mb-3">Recent Activity</div>
-        <v-card class="bg-grey-darken-4" variant="outlined">
-          <v-table density="compact" class="bg-transparent">
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Space</th>
-                <th>Status</th>
-                <th>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="entry in store.stats.recentActivity.slice(0, 10)" :key="entry.id">
-                <td class="text-truncate" style="max-width: 300px;">{{ fileName(entry.originalPath) }}</td>
-                <td>{{ entry.originalSpace }}</td>
-                <td>
-                  <v-chip :color="statusColor(entry.status)" size="x-small" variant="tonal">
-                    {{ entry.status }}
-                  </v-chip>
-                </td>
-                <td class="text-caption">{{ formatDate(entry.archivedAt) }}</td>
-              </tr>
-            </tbody>
-          </v-table>
-        </v-card>
+        <div class="archive-view__section-title">Recent Activity</div>
+        <v-table density="compact" class="archive-view__table">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Space</th>
+              <th>Status</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="entry in store.stats.recentActivity.slice(0, 10)" :key="entry.id">
+              <td class="text-truncate" style="max-width: 300px;">{{ fileName(entry.originalPath) }}</td>
+              <td>{{ entry.originalSpace }}</td>
+              <td>
+                <v-chip :color="statusColor(entry.status)" size="x-small" variant="tonal">
+                  {{ entry.status }}
+                </v-chip>
+              </td>
+              <td class="text-caption">{{ formatDate(entry.archivedAt) }}</td>
+            </tr>
+          </tbody>
+        </v-table>
       </div>
     </div>
 
     <!-- ═══════ Catalog Tab ═══════ -->
     <div v-if="activeTab === 'catalog'">
       <!-- Filters -->
-      <v-card class="bg-grey-darken-4 pa-3 mb-4" variant="outlined">
+      <div class="archive-view__filters mb-4">
         <v-row dense align="center">
           <v-col cols="12" sm="4">
             <v-text-field
@@ -303,79 +288,77 @@ onMounted(async () => {
             />
           </v-col>
           <v-col cols="12" sm="2" class="text-right">
-            <span class="text-caption text-grey">{{ catalogTotal }} entries</span>
+            <span class="text-caption" style="color: #6b7280;">{{ catalogTotal }} entries</span>
           </v-col>
         </v-row>
-      </v-card>
+      </div>
 
       <!-- Catalog table -->
-      <v-card class="bg-grey-darken-4" variant="outlined">
-        <v-data-table
-          :headers="catalogHeaders"
-          :items="catalogEntries"
-          :loading="store.isCatalogLoading"
-          density="compact"
-          class="bg-transparent"
-          :items-per-page="catalogPageSize"
-          hide-default-footer
-        >
-          <template #item.originalPath="{ item }">
-            <div class="text-truncate" style="max-width: 280px;" :title="item.originalPath">
-              <v-icon size="16" class="mr-1" color="grey">mdi-file</v-icon>
-              {{ fileName(item.originalPath) }}
-            </div>
-          </template>
+      <v-data-table
+        :headers="catalogHeaders"
+        :items="catalogEntries"
+        :loading="store.isCatalogLoading"
+        density="compact"
+        class="archive-view__table"
+        :items-per-page="catalogPageSize"
+        hide-default-footer
+      >
+        <template #item.originalPath="{ item }">
+          <div class="text-truncate" style="max-width: 280px;" :title="item.originalPath">
+            <v-icon size="16" class="mr-1" color="grey">mdi-file</v-icon>
+            {{ fileName(item.originalPath) }}
+          </div>
+        </template>
 
-          <template #item.originalSize="{ item }">
-            {{ formatSize(item.originalSize) }}
-          </template>
+        <template #item.originalSize="{ item }">
+          {{ formatSize(item.originalSize) }}
+        </template>
 
-          <template #item.archivedAt="{ item }">
-            <span class="text-caption">{{ formatDate(item.archivedAt) }}</span>
-          </template>
+        <template #item.archivedAt="{ item }">
+          <span class="text-caption">{{ formatDate(item.archivedAt) }}</span>
+        </template>
 
-          <template #item.status="{ item }">
-            <v-chip :color="statusColor(item.status)" size="x-small" variant="tonal">
-              {{ item.status }}
-            </v-chip>
-          </template>
+        <template #item.status="{ item }">
+          <v-chip :color="statusColor(item.status)" size="x-small" variant="tonal">
+            {{ item.status }}
+          </v-chip>
+        </template>
 
-          <template #item.actions="{ item }">
-            <div class="d-flex gap-1">
-              <v-btn
-                v-if="item.status === 'archived'"
-                icon="mdi-restore"
-                size="x-small"
-                variant="text"
-                color="success"
-                title="Restore"
-                :loading="isRestoring === item.id"
-                @click="handleRestore(item)"
-              />
-              <v-btn
-                icon="mdi-delete"
-                size="x-small"
-                variant="text"
-                color="error"
-                title="Delete from archive"
-                @click="confirmDelete(item)"
-              />
-            </div>
-          </template>
+        <template #item.actions="{ item }">
+          <div class="d-flex" style="gap: 4px;">
+            <v-btn
+              v-if="item.status === 'archived'"
+              icon="mdi-restore"
+              size="x-small"
+              variant="text"
+              color="success"
+              title="Restore"
+              :loading="isRestoring === item.id"
+              @click="handleRestore(item)"
+            />
+            <v-btn
+              icon="mdi-delete"
+              size="x-small"
+              variant="text"
+              color="error"
+              title="Delete from archive"
+              @click="confirmDelete(item)"
+            />
+          </div>
+        </template>
 
-          <template #bottom>
-            <div v-if="catalogPageCount > 1" class="d-flex justify-center pa-2">
-              <v-pagination
-                v-model="catalogPage"
-                :length="catalogPageCount"
-                :total-visible="5"
-                density="compact"
-                size="small"
-              />
-            </div>
-          </template>
-        </v-data-table>
-      </v-card>
+        <template #bottom>
+          <div v-if="catalogPageCount > 1" class="d-flex justify-center pa-2">
+            <v-pagination
+              v-model="catalogPage"
+              :length="catalogPageCount"
+              :total-visible="5"
+              density="compact"
+              size="small"
+            />
+          </div>
+        </template>
+      </v-data-table>
     </div>
 
     <!-- ═══════ Locations Tab ═══════ -->
@@ -396,10 +379,113 @@ onMounted(async () => {
 </template>
 
 <style scoped lang="scss">
-.gap-4 {
-  gap: 16px;
-}
-.gap-1 {
-  gap: 4px;
+.archive-view {
+  max-width: 1400px;
+
+  &__tabs {
+    :deep(.v-tab) {
+      text-transform: none;
+      letter-spacing: normal;
+    }
+  }
+
+  // ---- Stats grid ----
+  &__stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+
+    @include phone {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+  }
+
+  &__stat-card {
+    background-color: #22252d;
+    border: 1px solid rgba(55, 65, 81, 0.3);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  &__stat-label {
+    font-size: 12px;
+    color: #6b7280;
+    margin-bottom: 4px;
+  }
+
+  &__stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #e5e7eb;
+  }
+
+  // ---- Section titles ----
+  &__section-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: #e5e7eb;
+    margin-bottom: 12px;
+  }
+
+  // ---- Breakdown grid ----
+  &__breakdown-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+
+  &__breakdown-card {
+    background-color: #22252d;
+    border: 1px solid rgba(55, 65, 81, 0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+
+  &__breakdown-name {
+    font-weight: 500;
+    color: #e5e7eb;
+  }
+
+  &__breakdown-stats {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    color: #9ca3af;
+  }
+
+  // ---- Table ----
+  &__table {
+    background: transparent !important;
+    border-radius: 8px;
+    overflow: hidden;
+
+    :deep(table) {
+      background: #22252d;
+    }
+
+    :deep(th) {
+      font-size: 11px !important;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af !important;
+    }
+
+    :deep(td) {
+      font-size: 13px;
+    }
+
+    :deep(.v-data-table__td) {
+      border-bottom-color: rgba(55, 65, 81, 0.3) !important;
+    }
+  }
+
+  // ---- Filters ----
+  &__filters {
+    background-color: #22252d;
+    border: 1px solid rgba(55, 65, 81, 0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
 }
 </style>

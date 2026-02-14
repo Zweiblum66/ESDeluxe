@@ -16,8 +16,14 @@ router.post('/', asyncHandler(groupsController.createGroup));
 // DELETE /:name
 router.delete('/:name', asyncHandler(groupsController.deleteGroup));
 
+// POST /:name/rename
+router.post('/:name/rename', asyncHandler(groupsController.renameGroup));
+
 // GET /:name/users
 router.get('/:name/users', asyncHandler(groupsController.getGroupUsers));
+
+// POST /:name/users/bulk — MUST come before /:name/users/:username
+router.post('/:name/users/bulk', asyncHandler(groupsController.bulkAddUsersToGroup));
 
 // POST /:name/users
 router.post('/:name/users', asyncHandler(groupsController.addUserToGroup));

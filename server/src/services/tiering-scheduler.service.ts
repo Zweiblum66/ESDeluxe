@@ -6,7 +6,7 @@ import { listSpaces } from './editshare-api/spaces.service.js';
 import * as efsCli from './efs-cli/commands.js';
 import * as tieringStore from './tiering-rules.store.js';
 import * as archiveService from './archive/archive.service.js';
-import type { ITieringRule, ITieringSchedulerStatus, ISpaceSelector } from '../../../shared/types/tiering.js';
+import type { ITieringRule, ITieringSchedulerStatus, ITieringProgress, ISpaceSelector } from '../../../shared/types/tiering.js';
 import type { ISpace } from '../../../shared/types/space.js';
 
 // ──────────────────────────────────────────────
@@ -17,6 +17,53 @@ let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 let isRunning = false;
 let lastCheckAt: number | undefined;
 let nextCheckAt: number | undefined;
+
+// ──────────────────────────────────────────────
+// Live Progress State (in-memory)
+// ──────────────────────────────────────────────
+
+let currentProgress: ITieringProgress | null = null;
+let lastDbFlushAt = 0;
+let lastDbFlushCount = 0;
+const DB_FLUSH_INTERVAL_MS = 2000;
+const DB_FLUSH_FILE_INTERVAL = 5;
+
+/** Get the current in-flight progress (returns null when idle) */
+export function getCurrentProgress(): ITieringProgress | null {
+  return currentProgress ? { ...currentProgress } : null;
+}
+
+function updateProgressPercent(): void {
+  if (!currentProgress || currentProgress.totalFiles === 0) return;
+  const done = currentProgress.filesProcessed + currentProgress.filesFailed + currentProgress.filesSkipped;
+  currentProgress.percentComplete = Math.round((done / currentProgress.totalFiles) * 100);
+}
+
+function maybeFlushProgressToDb(logId: number): void {
+  if (!currentProgress) return;
+  const now = Date.now();
+  const totalDone = currentProgress.filesProcessed + currentProgress.filesFailed;
+
+  const timeSinceFlush = now - lastDbFlushAt;
+  const filesSinceFlush = totalDone - lastDbFlushCount;
+
+  if (timeSinceFlush >= DB_FLUSH_INTERVAL_MS || filesSinceFlush >= DB_FLUSH_FILE_INTERVAL) {
+    tieringStore.updateExecutionLogProgress(logId, {
+      filesProcessed: currentProgress.filesProcessed,
+      filesSkipped: currentProgress.filesSkipped,
+      filesFailed: currentProgress.filesFailed,
+      bytesProcessed: currentProgress.bytesProcessed,
+      totalFiles: currentProgress.totalFiles,
+      currentFile: currentProgress.currentFile,
+    });
+    lastDbFlushAt = now;
+    lastDbFlushCount = totalDone;
+  }
+}
+
+// ──────────────────────────────────────────────
+// Config helpers
+// ──────────────────────────────────────────────
 
 function getIntervalMinutes(): number {
   return config.TIERING_CHECK_INTERVAL_MINUTES;
@@ -161,6 +208,7 @@ async function executeRuleForSpace(
   spaceName: string,
   spaceType: string,
   maxFiles: number,
+  logId: number,
 ): Promise<SpaceExecResult> {
   let filesProcessed = 0;
   let filesSkipped = 0;
@@ -174,6 +222,12 @@ async function executeRuleForSpace(
   let searchPath = contentRoot;
   if (rule.pathPattern) {
     searchPath = resolveSpacePath(spaceName, spaceType, rule.pathPattern);
+  }
+
+  // Update progress: enumerating this space
+  if (currentProgress) {
+    currentProgress.currentSpace = spaceName;
+    currentProgress.updatedAt = Math.floor(Date.now() / 1000);
   }
 
   // Use efs-find to enumerate files
@@ -200,37 +254,78 @@ async function executeRuleForSpace(
     }
   }
 
+  // Update progress: candidates known, start processing
+  if (currentProgress) {
+    currentProgress.totalFiles += candidates.length;
+    currentProgress.status = 'processing';
+    currentProgress.updatedAt = Math.floor(Date.now() / 1000);
+  }
+
   // Process candidates based on target type
   if (rule.targetType === 'archive' && rule.archiveLocationId) {
     for (const candidate of candidates) {
+      // Update progress: current file
+      if (currentProgress) {
+        currentProgress.currentFile = `${spaceName}/${candidate.path}`;
+        currentProgress.updatedAt = Math.floor(Date.now() / 1000);
+      }
+
       try {
         const absPath = resolveSpacePath(spaceName, spaceType, candidate.path);
         const isStub = await archiveService.isStubFile(absPath);
-        if (isStub) { filesSkipped++; continue; }
+        if (isStub) {
+          filesSkipped++;
+          if (currentProgress) { currentProgress.filesSkipped++; updateProgressPercent(); }
+          maybeFlushProgressToDb(logId);
+          continue;
+        }
 
         if (rule.sourceGoal) {
           const currentGoal = await efsCli.getGoal(absPath);
-          if (currentGoal !== rule.sourceGoal) { filesSkipped++; continue; }
+          if (currentGoal !== rule.sourceGoal) {
+            filesSkipped++;
+            if (currentProgress) { currentProgress.filesSkipped++; updateProgressPercent(); }
+            maybeFlushProgressToDb(logId);
+            continue;
+          }
         }
 
         await archiveService.archiveFile(spaceName, candidate.path, rule.archiveLocationId, 'tiering-scheduler');
         filesProcessed++;
         bytesProcessed += candidate.size;
+        if (currentProgress) {
+          currentProgress.filesProcessed++;
+          currentProgress.bytesProcessed += candidate.size;
+          updateProgressPercent();
+        }
       } catch (err) {
         filesFailed++;
+        if (currentProgress) { currentProgress.filesFailed++; updateProgressPercent(); }
         const msg = err instanceof Error ? err.message : String(err);
         if (errors.length < 50) errors.push(`[${spaceName}] ${candidate.path}: ${msg}`);
         logger.warn({ err, path: candidate.path, space: spaceName }, 'Failed to archive file');
       }
+      maybeFlushProgressToDb(logId);
     }
   } else {
     for (const candidate of candidates) {
+      // Update progress: current file
+      if (currentProgress) {
+        currentProgress.currentFile = `${spaceName}/${candidate.path}`;
+        currentProgress.updatedAt = Math.floor(Date.now() / 1000);
+      }
+
       try {
         const absPath = resolveSpacePath(spaceName, spaceType, candidate.path);
 
         if (rule.sourceGoal) {
           const currentGoal = await efsCli.getGoal(absPath);
-          if (currentGoal !== rule.sourceGoal) { filesSkipped++; continue; }
+          if (currentGoal !== rule.sourceGoal) {
+            filesSkipped++;
+            if (currentProgress) { currentProgress.filesSkipped++; updateProgressPercent(); }
+            maybeFlushProgressToDb(logId);
+            continue;
+          }
         }
 
         if (rule.targetGoal) {
@@ -238,12 +333,19 @@ async function executeRuleForSpace(
         }
         filesProcessed++;
         bytesProcessed += candidate.size;
+        if (currentProgress) {
+          currentProgress.filesProcessed++;
+          currentProgress.bytesProcessed += candidate.size;
+          updateProgressPercent();
+        }
       } catch (err) {
         filesFailed++;
+        if (currentProgress) { currentProgress.filesFailed++; updateProgressPercent(); }
         const msg = err instanceof Error ? err.message : String(err);
         if (errors.length < 50) errors.push(`[${spaceName}] ${candidate.path}: ${msg}`);
         logger.warn({ err, path: candidate.path, space: spaceName }, 'Failed to tier file');
       }
+      maybeFlushProgressToDb(logId);
     }
   }
 
@@ -257,6 +359,27 @@ async function executeRuleForSpace(
 async function executeRule(rule: ITieringRule): Promise<void> {
   const logId = tieringStore.createExecutionLog(rule.id);
   const maxFiles = getMaxFilesPerRun();
+  const now0 = Math.floor(Date.now() / 1000);
+
+  // Initialize live progress
+  currentProgress = {
+    logId,
+    ruleId: rule.id,
+    ruleName: rule.name,
+    status: 'enumerating',
+    totalFiles: 0,
+    filesProcessed: 0,
+    filesSkipped: 0,
+    filesFailed: 0,
+    bytesProcessed: 0,
+    currentFile: null,
+    currentSpace: null,
+    startedAt: now0,
+    updatedAt: now0,
+    percentComplete: 0,
+  };
+  lastDbFlushAt = Date.now();
+  lastDbFlushCount = 0;
 
   let totalProcessed = 0;
   let totalSkipped = 0;
@@ -276,6 +399,7 @@ async function executeRule(rule: ITieringRule): Promise<void> {
       });
       const now = Math.floor(Date.now() / 1000);
       tieringStore.updateRuleRunStatus(rule.id, now, 0, 0, now + getIntervalMinutes() * 60);
+      currentProgress = null;
       return;
     }
 
@@ -290,7 +414,7 @@ async function executeRule(rule: ITieringRule): Promise<void> {
       if (remainingFiles <= 0) break;
 
       try {
-        const result = await executeRuleForSpace(rule, space.name, space.type, remainingFiles);
+        const result = await executeRuleForSpace(rule, space.name, space.type, remainingFiles, logId);
         totalProcessed += result.filesProcessed;
         totalSkipped += result.filesSkipped;
         totalFailed += result.filesFailed;
@@ -338,6 +462,9 @@ async function executeRule(rule: ITieringRule): Promise<void> {
 
     tieringStore.updateRule(rule.id, { status: 'error' });
     logger.error({ err, ruleId: rule.id, name: rule.name }, `Tiering rule failed: ${rule.name}`);
+  } finally {
+    // Always clear progress when done
+    currentProgress = null;
   }
 }
 
@@ -394,6 +521,9 @@ export function startScheduler(): void {
     logger.warn('Tiering scheduler already running');
     return;
   }
+
+  // Mark any stale running logs from a previous crash
+  tieringStore.markStaleRunningLogs();
 
   const intervalMs = getIntervalMinutes() * 60 * 1000;
 
